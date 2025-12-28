@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kmodule xmlns="http://www.drools.org/xsd/kmodule">
+    <!-- 
+        KieBase: A repository of all the application's knowledge definitions (rules, processes, etc.)
+        KieSession: A runtime session where rules are fired against facts
+    -->
+    <kbase name="rules" packages="rules">
+        <ksession name="rulesSession"/>
+    </kbase>
+</kmodule>
