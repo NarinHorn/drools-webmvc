@@ -15,7 +15,7 @@ COPY src ./src
 RUN gradle clean build -x test --no-daemon
 
 # Stage 2: Run the application
-FROM openjdk:21-jdk-slim
+FROM eclipse-temurin:21-jdk-jammy
 
 WORKDIR /app
 
