@@ -30,66 +30,57 @@ public class PolicyController {
         this.policyService = policyService;
     }
 
-    /**
-     * Get all policies
-     */
+    @Operation(
+        summary = "Get all policies",
+        description = "Retrieves a list of all access policies in the system, including both enabled and disabled policies."
+    )
     @GetMapping
     public ResponseEntity<List<AccessPolicy>> getAllPolicies() {
         return ResponseEntity.ok(policyService.getAllPolicies());
     }
 
-    /**
-     * Get only enabled policies
-     */
+    @Operation(
+        summary = "Get enabled policies",
+        description = "Retrieves only the policies that are currently enabled and active. Policies are ordered by priority (highest first)."
+    )
     @GetMapping("/enabled")
     public ResponseEntity<List<AccessPolicy>> getEnabledPolicies() {
         return ResponseEntity.ok(policyService.getEnabledPolicies());
     }
 
-    /**
-     * Get a single policy by ID
-     */
+    @Operation(
+        summary = "Get policy by ID",
+        description = "Retrieves a specific access policy by its unique identifier. Returns 404 if the policy does not exist."
+    )
     @GetMapping("/{id}")
     public ResponseEntity<AccessPolicy> getPolicyById(@PathVariable Long id) {
         return ResponseEntity.ok(policyService.getPolicyById(id));
     }
 
-    /**
-     * Create a new policy
-     * 
-     * Example request body:
-     * {
-     *   "policyName": "Manager Reports Access",
-     *   "description": "Allow managers to access reports",
-     *   "endpoint": "/api/reports/**",
-     *   "httpMethod": "GET",
-     *   "allowedRoles": ["ADMIN", "MANAGER"],
-     *   "conditions": {
-     *     "department": {"operator": "equals", "value": "SALES"}
-     *   },
-     *   "effect": "ALLOW",
-     *   "priority": 10
-     * }
-     */
-    @Operation(summary = "Create a new policy")
+    @Operation(
+        summary = "Create a new policy",
+        description = "Creates a new access policy with the specified rules and conditions. The policy will be automatically converted to DRL format and enabled. Requires a unique policy name."
+    )
     @PostMapping
     public ResponseEntity<AccessPolicy> createPolicy(@RequestBody PolicyDTO dto) {
         AccessPolicy created = policyService.createPolicy(dto);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
-    /**
-     * Update an existing policy
-     */
+    @Operation(
+        summary = "Update an existing policy",
+        description = "Updates an existing access policy with new rules, conditions, or settings. The DRL will be regenerated automatically. The policy ID must exist."
+    )
     @PutMapping("/{id}")
     public ResponseEntity<AccessPolicy> updatePolicy(@PathVariable Long id, @RequestBody PolicyDTO dto) {
         AccessPolicy updated = policyService.updatePolicy(id, dto);
         return ResponseEntity.ok(updated);
     }
 
-    /**
-     * Delete a policy
-     */
+    @Operation(
+        summary = "Delete a policy",
+        description = "Permanently deletes an access policy from the system. This action cannot be undone. The rules will be automatically rebuilt after deletion."
+    )
     @DeleteMapping("/{id}")
     public ResponseEntity<Map<String, String>> deletePolicy(@PathVariable Long id) {
         policyService.deletePolicy(id);
@@ -98,9 +89,10 @@ public class PolicyController {
         return ResponseEntity.ok(response);
     }
 
-    /**
-     * Enable or disable a policy
-     */
+    @Operation(
+        summary = "Enable or disable a policy",
+        description = "Toggles the enabled/disabled state of a policy. Disabled policies are not evaluated during access control checks. Useful for temporarily disabling policies without deleting them."
+    )
     @PatchMapping("/{id}/toggle")
     public ResponseEntity<AccessPolicy> togglePolicy(@PathVariable Long id, 
                                                       @RequestParam boolean enabled) {
@@ -108,10 +100,10 @@ public class PolicyController {
         return ResponseEntity.ok(updated);
     }
 
-    /**
-     * Preview generated DRL without saving
-     * Useful for frontend validation
-     */
+    @Operation(
+        summary = "Preview generated DRL",
+        description = "Generates and returns the DRL (Drools Rule Language) code for a policy without saving it. Useful for validating policy structure before creating or updating a policy."
+    )
     @PostMapping("/preview-drl")
     public ResponseEntity<Map<String, String>> previewDrl(@RequestBody PolicyDTO dto) {
         String drl = policyService.previewDrl(dto);
