@@ -3,6 +3,7 @@ package com.hunesion.drool_v2.controller;
 import com.hunesion.drool_v2.dto.PolicyDTO;
 import com.hunesion.drool_v2.entity.AccessPolicy;
 import com.hunesion.drool_v2.service.PolicyService;
+import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -70,6 +71,7 @@ public class PolicyController {
      *   "priority": 10
      * }
      */
+    @Operation(summary = "Create a new policy")
     @PostMapping
     public ResponseEntity<AccessPolicy> createPolicy(@RequestBody PolicyDTO dto) {
         AccessPolicy created = policyService.createPolicy(dto);
