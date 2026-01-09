@@ -1,6 +1,7 @@
 package com.hunesion.drool_v2.controller;
 
 import com.hunesion.drool_v2.entity.Equipment;
+import com.hunesion.drool_v2.entity.User;
 import com.hunesion.drool_v2.repository.EquipmentRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -126,5 +127,22 @@ public class EquipmentController {
     public ResponseEntity<List<Equipment>> getEquipmentByType(@PathVariable String deviceType) {
         List<Equipment> equipment = equipmentRepository.findByDeviceTypeAndIsDeletedFalse(deviceType);
         return ResponseEntity.ok(equipment);
+    }
+
+    @Operation(
+        summary = "Get all users assigned to equipment",
+        description = "Retrieves all users assigned to a specific equipment/device. Only returns active users. Returns 404 if the equipment does not exist or is deleted."
+    )
+    @GetMapping("/{equipmentId}/users")
+    public ResponseEntity<List<User>> getEquipmentUsers(@PathVariable Long equipmentId) {
+        return equipmentRepository.findById(equipmentId)
+                .filter(equipment -> !equipment.isDeleted())
+                .map(equipment -> {
+                    List<User> users = equipment.getUsers().stream()
+                            .filter(User::isActive)
+                            .toList();
+                    return ResponseEntity.ok(users);
+                })
+                .orElse(ResponseEntity.notFound().build());
     }
 }

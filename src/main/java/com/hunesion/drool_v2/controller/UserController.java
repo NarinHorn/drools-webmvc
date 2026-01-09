@@ -1,7 +1,9 @@
 package com.hunesion.drool_v2.controller;
 
+import com.hunesion.drool_v2.entity.Equipment;
 import com.hunesion.drool_v2.entity.Role;
 import com.hunesion.drool_v2.entity.User;
+import com.hunesion.drool_v2.repository.EquipmentRepository;
 import com.hunesion.drool_v2.repository.RoleRepository;
 import com.hunesion.drool_v2.repository.UserRepository;
 import io.swagger.v3.oas.annotations.Operation;
@@ -23,11 +25,13 @@ public class UserController {
 
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
+    private final EquipmentRepository equipmentRepository;
 
     @Autowired
-    public UserController(UserRepository userRepository, RoleRepository roleRepository) {
+    public UserController(UserRepository userRepository, RoleRepository roleRepository, EquipmentRepository equipmentRepository) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
+        this.equipmentRepository = equipmentRepository;
     }
 
     @Operation(
@@ -134,5 +138,54 @@ public class UserController {
         Map<String, String> response = new HashMap<>();
         response.put("message", "User deleted successfully");
         return ResponseEntity.ok(response);
+    }
+
+    @Operation(
+        summary = "Get all equipment assigned to a user",
+        description = "Retrieves all equipment/devices assigned to a specific user. Only returns non-deleted equipment. Returns 404 if the user does not exist."
+    )
+    @GetMapping("/{userId}/equipment")
+    public ResponseEntity<List<Equipment>> getUserEquipment(@PathVariable Long userId) {
+        return userRepository.findById(userId)
+                .map(user -> {
+                    List<Equipment> equipment = user.getEquipment().stream()
+                            .filter(eq -> !eq.isDeleted())
+                            .toList();
+                    return ResponseEntity.ok(equipment);
+                })
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    @Operation(
+        summary = "Assign equipment to user",
+        description = "Assigns an equipment/device to a user. The user and equipment must exist and the equipment must not be deleted. If the equipment is already assigned, the operation still succeeds."
+    )
+    @PostMapping("/{userId}/equipment/{equipmentId}")
+    public ResponseEntity<User> assignEquipmentToUser(@PathVariable Long userId, 
+                                                      @PathVariable Long equipmentId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        Equipment equipment = equipmentRepository.findById(equipmentId)
+                .filter(eq -> !eq.isDeleted())
+                .orElseThrow(() -> new RuntimeException("Equipment not found or deleted"));
+        
+        user.addEquipment(equipment);
+        return ResponseEntity.ok(userRepository.save(user));
+    }
+
+    @Operation(
+        summary = "Unassign equipment from user",
+        description = "Removes an equipment/device assignment from a user. The user and equipment must exist. If the equipment is not assigned to the user, the operation still succeeds."
+    )
+    @DeleteMapping("/{userId}/equipment/{equipmentId}")
+    public ResponseEntity<User> unassignEquipmentFromUser(@PathVariable Long userId, 
+                                                           @PathVariable Long equipmentId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        Equipment equipment = equipmentRepository.findById(equipmentId)
+                .orElseThrow(() -> new RuntimeException("Equipment not found"));
+        
+        user.removeEquipment(equipment);
+        return ResponseEntity.ok(userRepository.save(user));
     }
 }

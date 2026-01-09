@@ -5,6 +5,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
+import java.util.HashSet;
+import java.util.Set;
 
 @Entity
 @Table(name = "equipment")
@@ -60,6 +62,10 @@ public class Equipment {
 
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
+
+    @ManyToMany(mappedBy = "equipment", fetch = FetchType.LAZY)
+    @JsonIgnore // Avoid circular reference in JSON responses
+    private Set<User> users = new HashSet<>();
 
     @PrePersist
     protected void onCreate() {
@@ -181,6 +187,14 @@ public class Equipment {
 
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public Set<User> getUsers() {
+        return users;
+    }
+
+    public void setUsers(Set<User> users) {
+        this.users = users;
     }
 
     @Override
