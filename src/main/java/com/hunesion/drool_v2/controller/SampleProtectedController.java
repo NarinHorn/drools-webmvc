@@ -1,5 +1,6 @@
 package com.hunesion.drool_v2.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -20,6 +21,10 @@ public class SampleProtectedController {
     // ==================== REPORTS ENDPOINTS ====================
     // Policy: Manager Reports Access (MANAGER role required)
 
+    @Operation(
+        summary = "Get all reports",
+        description = "Retrieves a list of all available reports. Access is controlled by policies requiring MANAGER role or higher."
+    )
     @GetMapping("/reports")
     public ResponseEntity<Map<String, Object>> getReports() {
         Map<String, Object> response = new HashMap<>();
@@ -32,6 +37,10 @@ public class SampleProtectedController {
         return ResponseEntity.ok(response);
     }
 
+    @Operation(
+        summary = "Get report by ID",
+        description = "Retrieves a specific report by its ID. Access is controlled by policies requiring MANAGER role or higher."
+    )
     @GetMapping("/reports/{id}")
     public ResponseEntity<Map<String, Object>> getReportById(@PathVariable Long id) {
         Map<String, Object> response = new HashMap<>();
@@ -47,6 +56,10 @@ public class SampleProtectedController {
     // ==================== PROFILE ENDPOINTS ====================
     // Policy: User Profile Access (USER, MANAGER, VIEWER roles)
 
+    @Operation(
+        summary = "Get user profile",
+        description = "Retrieves the profile information for the authenticated user. The username is extracted from the X-Username header. Access is typically granted to USER, MANAGER, or VIEWER roles."
+    )
     @GetMapping("/profile")
     public ResponseEntity<Map<String, Object>> getProfile(@RequestHeader("X-Username") String username) {
         Map<String, Object> response = new HashMap<>();
@@ -56,6 +69,10 @@ public class SampleProtectedController {
         return ResponseEntity.ok(response);
     }
 
+    @Operation(
+        summary = "Update user profile",
+        description = "Updates the profile information for the authenticated user. The username is extracted from the X-Username header. Access is typically granted to USER or MANAGER roles."
+    )
     @PutMapping("/profile")
     public ResponseEntity<Map<String, Object>> updateProfile(@RequestHeader("X-Username") String username,
                                                               @RequestBody Map<String, Object> profileData) {
@@ -69,6 +86,10 @@ public class SampleProtectedController {
     // ==================== SALES ENDPOINTS ====================
     // Policy: Sales Department Data Access (USER/MANAGER + department=SALES)
 
+    @Operation(
+        summary = "Get sales data",
+        description = "Retrieves sales data including products and amounts. Access requires USER or MANAGER role AND the user must belong to the SALES department."
+    )
     @GetMapping("/sales")
     public ResponseEntity<Map<String, Object>> getSalesData() {
         Map<String, Object> response = new HashMap<>();
@@ -81,6 +102,10 @@ public class SampleProtectedController {
         return ResponseEntity.ok(response);
     }
 
+    @Operation(
+        summary = "Get sale by ID",
+        description = "Retrieves a specific sale record by its ID. Access requires USER or MANAGER role AND the user must belong to the SALES department."
+    )
     @GetMapping("/sales/{id}")
     public ResponseEntity<Map<String, Object>> getSaleById(@PathVariable Long id) {
         Map<String, Object> response = new HashMap<>();
@@ -97,6 +122,10 @@ public class SampleProtectedController {
     // ==================== MANAGEMENT ENDPOINTS ====================
     // Policy: Management Level Access (USER/MANAGER + level >= 5)
 
+    @Operation(
+        summary = "Get management dashboard data",
+        description = "Retrieves high-level management data including total employees, revenue, and active projects. Access requires USER or MANAGER role AND user level must be 5 or higher."
+    )
     @GetMapping("/management")
     public ResponseEntity<Map<String, Object>> getManagementData() {
         Map<String, Object> response = new HashMap<>();
@@ -109,6 +138,10 @@ public class SampleProtectedController {
         return ResponseEntity.ok(response);
     }
 
+    @Operation(
+        summary = "Create management decision",
+        description = "Records a management decision. Access requires USER or MANAGER role AND user level must be 5 or higher."
+    )
     @PostMapping("/management/decisions")
     public ResponseEntity<Map<String, Object>> createDecision(@RequestBody Map<String, Object> decision) {
         Map<String, Object> response = new HashMap<>();
@@ -121,6 +154,10 @@ public class SampleProtectedController {
     // ==================== PUBLIC ENDPOINTS ====================
     // Policy: Viewer Public Data Access (VIEWER, USER, MANAGER)
 
+    @Operation(
+        summary = "Get public information",
+        description = "Retrieves public company information. This endpoint is accessible to VIEWER, USER, and MANAGER roles."
+    )
     @GetMapping("/public/info")
     public ResponseEntity<Map<String, Object>> getPublicInfo() {
         Map<String, Object> response = new HashMap<>();
@@ -134,6 +171,10 @@ public class SampleProtectedController {
     // ==================== ADMIN ONLY ENDPOINTS ====================
     // Policy: Admin Full Access (ADMIN role only)
 
+    @Operation(
+        summary = "Get admin dashboard",
+        description = "Retrieves administrative dashboard data including system statistics. Access is restricted to users with ADMIN role only."
+    )
     @GetMapping("/admin/dashboard")
     public ResponseEntity<Map<String, Object>> getAdminDashboard() {
         Map<String, Object> response = new HashMap<>();
@@ -146,6 +187,10 @@ public class SampleProtectedController {
         return ResponseEntity.ok(response);
     }
 
+    @Operation(
+        summary = "Update system settings",
+        description = "Updates system-wide settings. Access is restricted to users with ADMIN role only. Use with caution as this affects the entire system."
+    )
     @PostMapping("/admin/settings")
     public ResponseEntity<Map<String, Object>> updateSettings(@RequestBody Map<String, Object> settings) {
         Map<String, Object> response = new HashMap<>();

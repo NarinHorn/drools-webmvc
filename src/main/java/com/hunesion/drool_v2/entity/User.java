@@ -43,6 +43,14 @@ public class User {
     @Column(name = "attribute_value")
     private Map<String, String> attributes = new HashMap<>();
 
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+            name = "user_equipment",
+            joinColumns = @JoinColumn(name = "user_id"),
+            inverseJoinColumns = @JoinColumn(name = "equipment_id")
+    )
+    private Set<Equipment> equipment = new HashSet<>();
+
     public User() {
     }
 
@@ -138,6 +146,22 @@ public class User {
 
     public boolean hasRole(String roleName) {
         return roles.stream().anyMatch(r -> r.getName().equals(roleName));
+    }
+
+    public Set<Equipment> getEquipment() {
+        return equipment;
+    }
+
+    public void setEquipment(Set<Equipment> equipment) {
+        this.equipment = equipment;
+    }
+
+    public void addEquipment(Equipment equipment) {
+        this.equipment.add(equipment);
+    }
+
+    public void removeEquipment(Equipment equipment) {
+        this.equipment.remove(equipment);
     }
 
     @Override

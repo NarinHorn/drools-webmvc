@@ -1,10 +1,30 @@
 package com.hunesion.drool_v2.entity;
 
+import com.fasterxml.jackson.annotation.JsonPropertyOrder;
+import com.fasterxml.jackson.annotation.JsonRawValue;
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "access_policies")
+@JsonPropertyOrder({
+        "id",
+        "policyName",
+        "description",
+        "endpoint",
+        "httpMethod",
+        "allowedRoles",
+        "conditions",
+        "effect",
+        "priority",
+        "enabled",
+        "generatedDrl",
+        "createdAt",
+        "updatedAt"
+})
 public class AccessPolicy {
 
     @Id
@@ -25,7 +45,9 @@ public class AccessPolicy {
     @Column(columnDefinition = "TEXT")
     private String allowedRoles;
 
-    @Column(columnDefinition = "TEXT")
+    // In AccessPolicy.java
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "JSONB")
     private String conditions;
 
     @Column(nullable = false)
@@ -104,6 +126,7 @@ public class AccessPolicy {
         this.allowedRoles = allowedRoles;
     }
 
+    @JsonRawValue
     public String getConditions() {
         return conditions;
     }

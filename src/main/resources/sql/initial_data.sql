@@ -1,3 +1,22 @@
+-- Migration: Convert conditions column from TEXT to JSONB
+-- Run this script on your database
+
+-- Step 1: Convert existing TEXT data to JSONB
+-- This validates that existing data is valid JSON and converts it
+UPDATE access_policies
+SET conditions = conditions::jsonb
+WHERE conditions IS NOT NULL
+  AND conditions != 'null'
+  AND conditions != '';
+
+-- Step 2: Alter the column type
+ALTER TABLE access_policies
+    ALTER COLUMN conditions TYPE JSONB
+        USING CASE
+                  WHEN conditions IS NULL OR conditions = '' OR conditions = 'null' THEN NULL
+                  ELSE conditions::jsonb
+        END;
+
 -- ============================================
 -- Initial Data SQL Script for ABAC System
 -- Generated from DataInitializer.java

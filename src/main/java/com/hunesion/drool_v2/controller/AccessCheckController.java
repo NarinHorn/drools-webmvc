@@ -3,6 +3,7 @@ package com.hunesion.drool_v2.controller;
 import com.hunesion.drool_v2.model.AccessRequest;
 import com.hunesion.drool_v2.model.AccessResult;
 import com.hunesion.drool_v2.service.AccessControlService;
+import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -27,11 +28,10 @@ public class AccessCheckController {
         this.accessControlService = accessControlService;
     }
 
-    /**
-     * Check if a user has access to a specific endpoint
-     * 
-     * Example: GET /api/access/check?username=john&endpoint=/api/reports&method=GET
-     */
+    @Operation(
+        summary = "Check access by username and endpoint",
+        description = "Checks if a user has access to a specific endpoint using query parameters. Retrieves user information from the database and evaluates against all active policies. Returns whether access is allowed and which policy matched."
+    )
     @GetMapping("/check")
     public ResponseEntity<Map<String, Object>> checkAccess(
             @RequestParam String username,
@@ -53,10 +53,10 @@ public class AccessCheckController {
         return ResponseEntity.ok(response);
     }
 
-    /**
-     * Check access with full AccessRequest body
-     * Allows testing with custom attributes
-     */
+    @Operation(
+        summary = "Check access with custom request",
+        description = "Evaluates access control using a fully customized AccessRequest object. Allows testing with custom attributes, roles, and conditions. Useful for testing policies with specific connection parameters (e.g., SSH hostname, port) or other custom attributes."
+    )
     @PostMapping("/check")
     public ResponseEntity<AccessResult> checkAccessWithRequest(@RequestBody AccessRequest request) {
         AccessResult result = accessControlService.evaluateAccess(request);
