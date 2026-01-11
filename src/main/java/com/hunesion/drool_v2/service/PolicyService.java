@@ -2,11 +2,10 @@ package com.hunesion.drool_v2.service;
 
 import com.hunesion.drool_v2.dto.ConditionDTO;
 import com.hunesion.drool_v2.dto.PolicyDTO;
-import com.hunesion.drool_v2.entity.AccessPolicy;
+import com.hunesion.drool_v2.model.entity.AccessPolicy;
 import com.hunesion.drool_v2.repository.AccessPolicyRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.type.TypeFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

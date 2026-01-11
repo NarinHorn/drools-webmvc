@@ -1,7 +1,7 @@
 package com.hunesion.drool_v2.controller;
 
-import com.hunesion.drool_v2.entity.Equipment;
-import com.hunesion.drool_v2.entity.User;
+import com.hunesion.drool_v2.model.entity.Equipment;
+import com.hunesion.drool_v2.model.entity.User;
 import com.hunesion.drool_v2.repository.EquipmentRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.beans.factory.annotation.Autowired;

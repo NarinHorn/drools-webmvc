@@ -1,6 +1,6 @@
 package com.hunesion.drool_v2.repository;
 
-import com.hunesion.drool_v2.entity.User;
+import com.hunesion.drool_v2.model.entity.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 

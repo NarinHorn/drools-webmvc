@@ -1,6 +1,6 @@
 package com.hunesion.drool_v2.service;
 
-import com.hunesion.drool_v2.entity.AccessPolicy;
+import com.hunesion.drool_v2.model.entity.AccessPolicy;
 import com.hunesion.drool_v2.repository.AccessPolicyRepository;
 import jakarta.annotation.PostConstruct;
 import org.kie.api.KieServices;
@@ -45,6 +45,21 @@ public class DynamicRuleService {
         this.kieServices = KieServices.Factory.get();
     }
 
+    @Autowired
+    private EquipmentPolicyRuleGenerator equipmentPolicyRuleGenerator;
+
+    private void loadEquipmentPoliciesFromDatabase(KieFileSystem kieFileSystem) {
+        try {
+            String equipmentRules = equipmentPolicyRuleGenerator.generateAllPolicyRules();
+            if (equipmentRules != null && !equipmentRules.trim().isEmpty()) {
+                kieFileSystem.write(DYNAMIC_RULES_PATH + "equipment-policies.drl", equipmentRules);
+                System.out.println("  Loaded equipment policies from database");
+            }
+        } catch (Exception e) {
+            System.err.println("Warning: Could not load equipment policies - " + e.getMessage());
+        }
+    }
+
     @PostConstruct
     public void init() {
         rebuildRules();
@@ -64,6 +79,9 @@ public class DynamicRuleService {
 
             // Load dynamic rules from database
             loadDynamicRulesFromDatabase(kieFileSystem);
+
+            // Load equipment policies from database
+            loadEquipmentPoliciesFromDatabase(kieFileSystem);
 
             // Build and verify
             KieBuilder kieBuilder = kieServices.newKieBuilder(kieFileSystem);

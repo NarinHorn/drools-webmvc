@@ -1,6 +1,6 @@
 package com.hunesion.drool_v2.repository;
 
-import com.hunesion.drool_v2.entity.Equipment;
+import com.hunesion.drool_v2.model.entity.Equipment;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;

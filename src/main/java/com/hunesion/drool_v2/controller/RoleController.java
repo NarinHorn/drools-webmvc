@@ -1,6 +1,6 @@
 package com.hunesion.drool_v2.controller;
 
-import com.hunesion.drool_v2.entity.Role;
+import com.hunesion.drool_v2.model.entity.Role;
 import com.hunesion.drool_v2.repository.RoleRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.beans.factory.annotation.Autowired;

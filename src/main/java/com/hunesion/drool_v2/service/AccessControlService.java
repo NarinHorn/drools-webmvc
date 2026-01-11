@@ -1,6 +1,6 @@
 package com.hunesion.drool_v2.service;
 
-import com.hunesion.drool_v2.entity.User;
+import com.hunesion.drool_v2.model.entity.User;
 import com.hunesion.drool_v2.model.AccessRequest;
 import com.hunesion.drool_v2.model.AccessResult;
 import com.hunesion.drool_v2.repository.UserRepository;

@@ -1,5 +1,8 @@
-package com.hunesion.drool_v2.entity;
+package com.hunesion.drool_v2.model.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import jakarta.persistence.*;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -9,6 +12,17 @@ import java.util.stream.Collectors;
 
 @Entity
 @Table(name = "users")
+@JsonPropertyOrder({
+    "id",
+    "username",
+    "email",
+    "department",
+    "level",
+    "active",
+    "roles",
+    "attributes",
+    "equipment"
+})
 public class User {
 
     @Id
@@ -19,6 +33,7 @@ public class User {
     private String username;
 
     @Column(nullable = false)
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY) // Allow write (deserialization) but not read (serialization)
     private String password;
 
     private String email;
@@ -29,6 +44,7 @@ public class User {
 
     private boolean active = true;
 
+    // user_roles
     @ManyToMany(fetch = FetchType.EAGER)
     @JoinTable(
             name = "user_roles",
@@ -43,13 +59,39 @@ public class User {
     @Column(name = "attribute_value")
     private Map<String, String> attributes = new HashMap<>();
 
+    // user_equipment
     @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(
             name = "user_equipment",
             joinColumns = @JoinColumn(name = "user_id"),
             inverseJoinColumns = @JoinColumn(name = "equipment_id")
     )
+    @JsonIgnore // Avoid loading lazy relationship unless explicitly requested
     private Set<Equipment> equipment = new HashSet<>();
+
+    // user_group_members
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+            name = "user_group_members",
+            joinColumns = @JoinColumn(name = "user_id"),
+            inverseJoinColumns = @JoinColumn(name = "group_id")
+    )
+    @JsonIgnore
+    private Set<UserGroup> groups = new HashSet<>();
+
+    public Set<UserGroup> getGroups() {
+        return groups;
+    }
+
+    public void setGroups(Set<UserGroup> groups) {
+        this.groups = groups;
+    }
+
+    public Set<String> getGroupNames() {
+        return groups.stream()
+                .map(UserGroup::getGroupName)
+                .collect(Collectors.toSet());
+    }
 
     public User() {
     }

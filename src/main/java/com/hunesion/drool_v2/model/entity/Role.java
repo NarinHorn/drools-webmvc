@@ -1,4 +1,4 @@
-package com.hunesion.drool_v2.entity;
+package com.hunesion.drool_v2.model.entity;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;

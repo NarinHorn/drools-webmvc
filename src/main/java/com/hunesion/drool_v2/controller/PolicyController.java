@@ -1,7 +1,7 @@
 package com.hunesion.drool_v2.controller;
 
 import com.hunesion.drool_v2.dto.PolicyDTO;
-import com.hunesion.drool_v2.entity.AccessPolicy;
+import com.hunesion.drool_v2.model.entity.AccessPolicy;
 import com.hunesion.drool_v2.service.PolicyService;
 import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.beans.factory.annotation.Autowired;
