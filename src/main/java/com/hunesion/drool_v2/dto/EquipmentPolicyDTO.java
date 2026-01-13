@@ -37,6 +37,12 @@ public class EquipmentPolicyDTO {
     private PolicyLoginControlDTO loginControl;
     private List<Map<String, Object>> policies;
 
+    // NEW: Custom conditions (like AccessPolicy) - flexible fields from frontend
+    private Map<String, ConditionDTO> customConditions;
+    
+    // NEW: Frontend-only metadata (not used in DRL generation)
+    private Map<String, Object> customMetadata;
+
     // Assignment IDs (for creating assignments)
     private Set<Long> userIds;
     private Set<Long> groupIds;
@@ -170,5 +176,21 @@ public class EquipmentPolicyDTO {
 
     public void setRoleIds(Set<Long> roleIds) {
         this.roleIds = roleIds;
+    }
+
+    public Map<String, ConditionDTO> getCustomConditions() {
+        return customConditions;
+    }
+
+    public void setCustomConditions(Map<String, ConditionDTO> customConditions) {
+        this.customConditions = customConditions;
+    }
+
+    public Map<String, Object> getCustomMetadata() {
+        return customMetadata;
+    }
+
+    public void setCustomMetadata(Map<String, Object> customMetadata) {
+        this.customMetadata = customMetadata;
     }
 }

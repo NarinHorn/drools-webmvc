@@ -1,5 +1,7 @@
 package com.hunesion.drool_v2.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hunesion.drool_v2.dto.*;
 import com.hunesion.drool_v2.model.entity.*;
 import com.hunesion.drool_v2.repository.*;
@@ -7,10 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -27,6 +26,8 @@ public class EquipmentPolicyService {
     private final CommandListRepository commandListRepository;
     private final EquipmentPolicyRuleGenerator ruleGenerator;
     private final DynamicRuleService dynamicRuleService;
+    private final ObjectMapper objectMapper;
+    private final PolicyConfigCache policyConfigCache;
 
     @Autowired
     public EquipmentPolicyService(
@@ -37,7 +38,9 @@ public class EquipmentPolicyService {
             RoleRepository roleRepository,
             CommandListRepository commandListRepository,
             EquipmentPolicyRuleGenerator ruleGenerator,
-            DynamicRuleService dynamicRuleService) {
+            DynamicRuleService dynamicRuleService,
+            ObjectMapper objectMapper,
+            PolicyConfigCache policyConfigCache) {
         this.policyRepository = policyRepository;
         this.userRepository = userRepository;
         this.groupRepository = groupRepository;
@@ -46,6 +49,8 @@ public class EquipmentPolicyService {
         this.commandListRepository = commandListRepository;
         this.ruleGenerator = ruleGenerator;
         this.dynamicRuleService = dynamicRuleService;
+        this.objectMapper = objectMapper;
+        this.policyConfigCache = policyConfigCache;
     }
 
     public List<EquipmentPolicy> getAllPolicies() {
@@ -68,10 +73,20 @@ public class EquipmentPolicyService {
         }
 
         EquipmentPolicy policy = convertDtoToEntity(dto);
+        
+        // Build policy_config JSON from DTO
+        String policyConfigJson = buildPolicyConfigJson(dto);
+        policy.setPolicyConfig(policyConfigJson);
+        
         EquipmentPolicy saved = policyRepository.save(policy);
 
         // Create assignments
         createAssignments(saved, dto);
+
+        // Generate DRL
+        String drl = ruleGenerator.generatePolicyRule(saved);
+        saved.setGeneratedRuleDrl(drl);
+        saved = policyRepository.save(saved);
 
         // Rebuild Drools rules
         dynamicRuleService.rebuildRules();
@@ -99,16 +114,22 @@ public class EquipmentPolicyService {
             existing.setPriority(dto.getPriority());
         }
 
-        // Update settings
-        updateCommonSettings(existing, dto.getCommonSettings());
-        updateAllowedTime(existing, dto.getAllowedTime());
-        updateCommandSettings(existing, dto.getCommandSettings());
-        updateLoginControl(existing, dto.getLoginControl());
+        // Build and update policy_config JSON
+        String policyConfigJson = buildPolicyConfigJson(dto);
+        existing.setPolicyConfig(policyConfigJson);
 
         EquipmentPolicy saved = policyRepository.save(existing);
 
         // Update assignments
         updateAssignments(saved, dto);
+
+        // Generate DRL
+        String drl = ruleGenerator.generatePolicyRule(saved);
+        saved.setGeneratedRuleDrl(drl);
+        saved = policyRepository.save(saved);
+
+        // Evict cache for this policy
+        policyConfigCache.evictPolicyConfig(id);
 
         // Rebuild Drools rules
         dynamicRuleService.rebuildRules();
@@ -157,20 +178,121 @@ public class EquipmentPolicyService {
             policy.setEquipmentBasicPolicy(basicPolicy);
         }
 
-        // Create settings
-        if (dto.getCommonSettings() != null) {
-            policy.setCommonSettings(convertCommonSettings(dto.getCommonSettings(), policy));
-        }
-        if (dto.getAllowedTime() != null) {
-            policy.setAllowedTime(convertAllowedTime(dto.getAllowedTime(), policy));
-        }
-        if (dto.getLoginControl() != null) {
-            policy.setLoginControl(convertLoginControl(dto.getLoginControl(), policy));
-        }
-
+        // Don't create normalized entities - they're now in JSONB
         return policy;
     }
 
+    /**
+     * Build policy_config JSON from DTO
+     */
+    private String buildPolicyConfigJson(EquipmentPolicyDTO dto) {
+        Map<String, Object> policyConfig = new HashMap<>();
+
+        // Convert commonSettings
+        if (dto.getCommonSettings() != null) {
+            policyConfig.put("commonSettings", convertCommonSettingsToMap(dto.getCommonSettings()));
+        }
+
+        // Convert allowedTime
+        if (dto.getAllowedTime() != null) {
+            policyConfig.put("allowedTime", convertAllowedTimeToMap(dto.getAllowedTime()));
+        }
+
+        // Convert loginControl
+        if (dto.getLoginControl() != null) {
+            policyConfig.put("loginControl", convertLoginControlToMap(dto.getLoginControl()));
+        }
+
+        // Convert commandSettings
+        if (dto.getCommandSettings() != null) {
+            policyConfig.put("commandSettings", dto.getCommandSettings().stream()
+                .map(this::convertCommandSettingsToMap)
+                .collect(Collectors.toList()));
+        }
+
+        // Add customConditions if provided
+        if (dto.getCustomConditions() != null) {
+            policyConfig.put("customConditions", dto.getCustomConditions());
+        }
+
+        // Add customMetadata if provided
+        if (dto.getCustomMetadata() != null) {
+            policyConfig.put("customMetadata", dto.getCustomMetadata());
+        }
+
+        try {
+            return objectMapper.writeValueAsString(policyConfig);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Failed to serialize policy config", e);
+        }
+    }
+
+    // Helper methods to convert DTOs to Maps
+    private Map<String, Object> convertCommonSettingsToMap(PolicyCommonSettingsDTO dto) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("servicePort", dto.getServicePort());
+        map.put("idleTimeMinutes", dto.getIdleTimeMinutes());
+        map.put("timeoutMinutes", dto.getTimeoutMinutes());
+        map.put("blockingPolicyType", dto.getBlockingPolicyType());
+        map.put("sessionBlockingCount", dto.getSessionBlockingCount());
+        map.put("maxTelnetSessions", dto.getMaxTelnetSessions());
+        map.put("telnetBorderless", dto.isTelnetBorderless());
+        map.put("maxSshSessions", dto.getMaxSshSessions());
+        map.put("sshBorderless", dto.isSshBorderless());
+        map.put("maxRdpSessions", dto.getMaxRdpSessions());
+        map.put("rdpBorderless", dto.isRdpBorderless());
+        map.put("allowedProtocols", dto.getAllowedProtocols());
+        map.put("allowedDbms", dto.getAllowedDbms());
+        return map;
+    }
+
+    private Map<String, Object> convertAllowedTimeToMap(PolicyAllowedTimeDTO dto) {
+        Map<String, Object> map = new HashMap<>();
+        if (dto.getStartDate() != null) {
+            map.put("startDate", dto.getStartDate().toString());
+        }
+        if (dto.getEndDate() != null) {
+            map.put("endDate", dto.getEndDate().toString());
+        }
+        map.put("borderless", dto.isBorderless());
+        map.put("timeZone", dto.getTimeZone());
+        if (dto.getTimeSlots() != null) {
+            map.put("timeSlots", dto.getTimeSlots().stream()
+                .map(ts -> {
+                    Map<String, Object> slot = new HashMap<>();
+                    slot.put("dayOfWeek", ts.getDayOfWeek());
+                    slot.put("hourStart", ts.getHourStart());
+                    slot.put("hourEnd", ts.getHourEnd());
+                    return slot;
+                })
+                .collect(Collectors.toList()));
+        }
+        return map;
+    }
+
+    private Map<String, Object> convertLoginControlToMap(PolicyLoginControlDTO dto) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("ipFilteringType", dto.getIpFilteringType());
+        map.put("accountLockEnabled", dto.isAccountLockEnabled());
+        map.put("maxFailureAttempts", dto.getMaxFailureAttempts());
+        map.put("lockoutDurationMinutes", dto.getLockoutDurationMinutes());
+        map.put("twoFactorType", dto.getTwoFactorType());
+        map.put("allowedIps", dto.getAllowedIps());
+        return map;
+    }
+
+    private Map<String, Object> convertCommandSettingsToMap(PolicyCommandSettingsDTO dto) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("protocolType", dto.getProtocolType());
+        map.put("controlMethod", dto.getControlMethod());
+        map.put("controlTarget", dto.getControlTarget());
+        map.put("commandListIds", dto.getCommandListIds());
+        return map;
+    }
+
+    // Deprecated: These methods are kept for backward compatibility but are no longer used
+    // Policy config is now stored in JSONB
+    @Deprecated
     private PolicyCommonSettings convertCommonSettings(PolicyCommonSettingsDTO dto, EquipmentPolicy policy) {
         PolicyCommonSettings settings = new PolicyCommonSettings();
         settings.setPolicy(policy);
@@ -205,6 +327,7 @@ public class EquipmentPolicyService {
         return settings;
     }
 
+    @Deprecated
     private PolicyAllowedTime convertAllowedTime(PolicyAllowedTimeDTO dto, EquipmentPolicy policy) {
         PolicyAllowedTime allowedTime = new PolicyAllowedTime();
         allowedTime.setPolicy(policy);
@@ -223,6 +346,7 @@ public class EquipmentPolicyService {
         return allowedTime;
     }
 
+    @Deprecated
     private PolicyLoginControl convertLoginControl(PolicyLoginControlDTO dto, EquipmentPolicy policy) {
         PolicyLoginControl loginControl = new PolicyLoginControl();
         loginControl.setPolicy(policy);
@@ -300,94 +424,24 @@ public class EquipmentPolicyService {
         createAssignments(policy, dto);
     }
 
+    // Deprecated: These update methods are no longer used - policy config is now in JSONB
+    @Deprecated
     private void updateCommonSettings(EquipmentPolicy policy, PolicyCommonSettingsDTO dto) {
-        if (dto == null) {
-            if (policy.getCommonSettings() != null) {
-                policy.setCommonSettings(null);
-            }
-            return;
-        }
-
-        PolicyCommonSettings settings = policy.getCommonSettings();
-        if (settings == null) {
-            settings = convertCommonSettings(dto, policy);
-            policy.setCommonSettings(settings);
-        } else {
-            // Update existing
-            settings.setServicePort(dto.getServicePort());
-            settings.setIdleTimeMinutes(dto.getIdleTimeMinutes());
-            settings.setTimeoutMinutes(dto.getTimeoutMinutes());
-            // ... update other fields
-        }
+        // No longer used - settings are in JSONB
     }
 
+    @Deprecated
     private void updateAllowedTime(EquipmentPolicy policy, PolicyAllowedTimeDTO dto) {
-        if (dto == null) {
-            if (policy.getAllowedTime() != null) {
-                policy.setAllowedTime(null);
-            }
-            return;
-        }
-
-        PolicyAllowedTime allowedTime = policy.getAllowedTime();
-        if (allowedTime == null) {
-            allowedTime = convertAllowedTime(dto, policy);
-            policy.setAllowedTime(allowedTime);
-        } else {
-            // Update existing
-            allowedTime.setStartDate(dto.getStartDate());
-            allowedTime.setEndDate(dto.getEndDate());
-            allowedTime.setBorderless(dto.isBorderless());
-            allowedTime.setTimeZone(dto.getTimeZone());
-        }
+        // No longer used - settings are in JSONB
     }
 
+    @Deprecated
     private void updateCommandSettings(EquipmentPolicy policy, List<PolicyCommandSettingsDTO> dtoList) {
-        if (dtoList == null || dtoList.isEmpty()) {
-            policy.getCommandSettings().clear();
-            return;
-        }
-
-        // Clear and recreate
-        policy.getCommandSettings().clear();
-        for (PolicyCommandSettingsDTO dto : dtoList) {
-            PolicyCommandSettings settings = new PolicyCommandSettings();
-            settings.setPolicy(policy);
-            settings.setProtocolType(dto.getProtocolType());
-            settings.setControlMethod(dto.getControlMethod());
-            settings.setControlTarget(dto.getControlTarget());
-
-            if (dto.getCommandListIds() != null) {
-                Set<CommandList> commandLists = dto.getCommandListIds().stream()
-                        .map(id -> commandListRepository.findById(id)
-                                .orElseThrow(() -> new RuntimeException("Command list not found: " + id)))
-                        .collect(Collectors.toSet());
-                settings.setCommandLists(commandLists);
-            }
-
-            policy.getCommandSettings().add(settings);
-        }
+        // No longer used - settings are in JSONB
     }
 
+    @Deprecated
     private void updateLoginControl(EquipmentPolicy policy, PolicyLoginControlDTO dto) {
-        if (dto == null) {
-            if (policy.getLoginControl() != null) {
-                policy.setLoginControl(null);
-            }
-            return;
-        }
-
-        PolicyLoginControl loginControl = policy.getLoginControl();
-        if (loginControl == null) {
-            loginControl = convertLoginControl(dto, policy);
-            policy.setLoginControl(loginControl);
-        } else {
-            // Update existing
-            loginControl.setIpFilteringType(dto.getIpFilteringType());
-            loginControl.setAccountLockEnabled(dto.isAccountLockEnabled());
-            loginControl.setMaxFailureAttempts(dto.getMaxFailureAttempts());
-            loginControl.setLockoutDurationMinutes(dto.getLockoutDurationMinutes());
-            loginControl.setTwoFactorType(dto.getTwoFactorType());
-        }
+        // No longer used - settings are in JSONB
     }
 }

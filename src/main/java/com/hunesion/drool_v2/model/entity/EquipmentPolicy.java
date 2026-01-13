@@ -1,10 +1,19 @@
 package com.hunesion.drool_v2.model.entity;
 
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
+import com.fasterxml.jackson.annotation.JsonRawValue;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 @Entity
 @Table(name = "equipment_policies")
@@ -41,11 +50,30 @@ public class EquipmentPolicy {
     @JoinColumn(name = "equipment_basic_policy_id")
     private EquipmentPolicy equipmentBasicPolicy;
 
+    // NEW: JSONB field for all policy configuration
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "JSONB", name = "policy_config")
+    private String policyConfig;
+
+    // Generated DRL
+    @Column(columnDefinition = "TEXT", name = "generated_rule_drl")
+    private String generatedRuleDrl;
+
     @Column(nullable = false)
     private boolean enabled = true;
 
     @Column(nullable = false)
     private Integer priority = 0;
+
+    // Versioning & Audit
+    @Column(name = "version_no")
+    private Integer versionNo = 1;
+
+    @Column(name = "created_by")
+    private UUID createdBy;
+
+    @Column(name = "last_updated_by")
+    private UUID lastUpdatedBy;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -156,6 +184,47 @@ public class EquipmentPolicy {
         this.priority = priority;
     }
 
+    @JsonRawValue
+    public String getPolicyConfig() {
+        return policyConfig;
+    }
+
+    public void setPolicyConfig(String policyConfig) {
+        this.policyConfig = policyConfig;
+    }
+
+    public String getGeneratedRuleDrl() {
+        return generatedRuleDrl;
+    }
+
+    public void setGeneratedRuleDrl(String generatedRuleDrl) {
+        this.generatedRuleDrl = generatedRuleDrl;
+    }
+
+    public Integer getVersionNo() {
+        return versionNo;
+    }
+
+    public void setVersionNo(Integer versionNo) {
+        this.versionNo = versionNo;
+    }
+
+    public UUID getCreatedBy() {
+        return createdBy;
+    }
+
+    public void setCreatedBy(UUID createdBy) {
+        this.createdBy = createdBy;
+    }
+
+    public UUID getLastUpdatedBy() {
+        return lastUpdatedBy;
+    }
+
+    public void setLastUpdatedBy(UUID lastUpdatedBy) {
+        this.lastUpdatedBy = lastUpdatedBy;
+    }
+
     public LocalDateTime getCreatedAt() {
         return createdAt;
     }
@@ -234,5 +303,21 @@ public class EquipmentPolicy {
 
     public void setCommandSettings(Set<PolicyCommandSettings> commandSettings) {
         this.commandSettings = commandSettings;
+    }
+
+    /**
+     * Helper method to get parsed config as Map
+     * Note: This should use PolicyConfigCache for better performance
+     */
+    public Map<String, Object> getPolicyConfigAsMap() {
+        if (policyConfig == null || policyConfig.isEmpty()) {
+            return new HashMap<>();
+        }
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            return mapper.readValue(policyConfig, Map.class);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Failed to parse policy config for policy: " + id, e);
+        }
     }
 }

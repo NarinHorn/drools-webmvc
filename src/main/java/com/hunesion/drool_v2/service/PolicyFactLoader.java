@@ -8,9 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -23,14 +21,21 @@ public class PolicyFactLoader {
     private final EquipmentPolicyRepository policyRepository;
     private final UserRepository userRepository;
     private final EquipmentRepository equipmentRepository;
+    private final CommandListRepository commandListRepository;
+    private final PolicyConfigCache policyConfigCache;
 
     @Autowired
-    public PolicyFactLoader(EquipmentPolicyRepository policyRepository,
-                            UserRepository userRepository,
-                            EquipmentRepository equipmentRepository) {
+    public PolicyFactLoader(
+            EquipmentPolicyRepository policyRepository,
+            UserRepository userRepository,
+            EquipmentRepository equipmentRepository,
+            CommandListRepository commandListRepository,
+            PolicyConfigCache policyConfigCache) {
         this.policyRepository = policyRepository;
         this.userRepository = userRepository;
         this.equipmentRepository = equipmentRepository;
+        this.commandListRepository = commandListRepository;
+        this.policyConfigCache = policyConfigCache;
     }
 
     /**
@@ -105,50 +110,158 @@ public class PolicyFactLoader {
                     continue;
                 }
 
-                // Load common settings (protocols, DBMS)
-                PolicyCommonSettings commonSettings = policy.getCommonSettings();
-                if (commonSettings != null) {
-                    allProtocols.addAll(commonSettings.getAllowedProtocols().stream()
-                            .map(PolicyAllowedProtocol::getProtocol)
-                            .collect(Collectors.toSet()));
+                // Check if policy uses JSONB config (new approach) or normalized tables (old approach)
+                String policyConfigJson = policy.getPolicyConfig();
+                if (policyConfigJson != null && !policyConfigJson.isEmpty()) {
+                    // NEW: Use cached JSONB config parsing
+                    Map<String, Object> config = policyConfigCache.getParsedConfig(
+                        policy.getId(), 
+                        policyConfigJson
+                    );
 
-                    allDbms.addAll(commonSettings.getAllowedDbms().stream()
-                            .map(PolicyAllowedDbms::getDbmsType)
-                            .collect(Collectors.toSet()));
-                }
+                    // Extract commonSettings
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> commonSettings = (Map<String, Object>) config.get("commonSettings");
+                    if (commonSettings != null) {
+                        @SuppressWarnings("unchecked")
+                        List<String> protocols = (List<String>) commonSettings.get("allowedProtocols");
+                        if (protocols != null) {
+                            allProtocols.addAll(protocols);
+                        }
 
-                // Load command settings
-                for (PolicyCommandSettings cmdSettings : policy.getCommandSettings()) {
-                    for (CommandList cmdList : cmdSettings.getCommandLists()) {
-                        Set<String> commands = cmdList.getItems().stream()
-                                .map(CommandListItem::getCommandText)
-                                .collect(Collectors.toSet());
-
-                        if ("blacklist".equals(cmdList.getListType())) {
-                            allBlacklistedCommands.addAll(commands);
-                        } else if ("whitelist".equals(cmdList.getListType())) {
-                            allWhitelistedCommands.addAll(commands);
+                        @SuppressWarnings("unchecked")
+                        List<String> dbms = (List<String>) commonSettings.get("allowedDbms");
+                        if (dbms != null) {
+                            allDbms.addAll(dbms);
                         }
                     }
-                }
 
-                // Load time slots
-                PolicyAllowedTime allowedTime = policy.getAllowedTime();
-                if (allowedTime != null) {
-                    allTimeSlots.addAll(allowedTime.getTimeSlots().stream()
-                            .map(ts -> new TimeSlot(ts.getDayOfWeek(), ts.getHourStart(), ts.getHourEnd()))
-                            .collect(Collectors.toSet()));
-                }
-
-                // Load login control (IP filtering)
-                PolicyLoginControl loginControl = policy.getLoginControl();
-                if (loginControl != null) {
-                    if (ipFilteringType == null) {
-                        ipFilteringType = loginControl.getIpFilteringType();
+                    // Extract allowedTime
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> allowedTime = (Map<String, Object>) config.get("allowedTime");
+                    if (allowedTime != null) {
+                        @SuppressWarnings("unchecked")
+                        List<Map<String, Object>> timeSlots = (List<Map<String, Object>>) allowedTime.get("timeSlots");
+                        if (timeSlots != null) {
+                            timeSlots.forEach(ts -> {
+                                Object dayOfWeekObj = ts.get("dayOfWeek");
+                                Object hourStartObj = ts.get("hourStart");
+                                Object hourEndObj = ts.get("hourEnd");
+                                if (dayOfWeekObj != null && hourStartObj != null && hourEndObj != null) {
+                                    // Convert dayOfWeek to Integer (1=Monday, 7=Sunday)
+                                    Integer dayOfWeek;
+                                    if (dayOfWeekObj instanceof Integer) {
+                                        dayOfWeek = (Integer) dayOfWeekObj;
+                                    } else if (dayOfWeekObj instanceof Number) {
+                                        dayOfWeek = ((Number) dayOfWeekObj).intValue();
+                                    } else {
+                                        // Handle string day names (MONDAY, TUESDAY, etc.)
+                                        String dayStr = dayOfWeekObj.toString().toUpperCase();
+                                        dayOfWeek = convertDayNameToInteger(dayStr);
+                                    }
+                                    
+                                    Integer hourStart = hourStartObj instanceof Integer ? 
+                                        (Integer) hourStartObj : Integer.valueOf(hourStartObj.toString());
+                                    Integer hourEnd = hourEndObj instanceof Integer ? 
+                                        (Integer) hourEndObj : Integer.valueOf(hourEndObj.toString());
+                                    
+                                    if (dayOfWeek != null) {
+                                        allTimeSlots.add(new TimeSlot(dayOfWeek, hourStart, hourEnd));
+                                    }
+                                }
+                            });
+                        }
                     }
-                    allAllowedIps.addAll(loginControl.getAllowedIps().stream()
-                            .map(PolicyAllowedIp::getIpAddress)
-                            .collect(Collectors.toSet()));
+
+                    // Extract loginControl
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> loginControl = (Map<String, Object>) config.get("loginControl");
+                    if (loginControl != null) {
+                        String filteringType = (String) loginControl.get("ipFilteringType");
+                        if (ipFilteringType == null && filteringType != null) {
+                            ipFilteringType = filteringType;
+                        }
+
+                        @SuppressWarnings("unchecked")
+                        List<String> allowedIps = (List<String>) loginControl.get("allowedIps");
+                        if (allowedIps != null) {
+                            allAllowedIps.addAll(allowedIps);
+                        }
+                    }
+
+                    // Extract commandSettings (still need to load CommandLists from DB)
+                    @SuppressWarnings("unchecked")
+                    List<Map<String, Object>> commandSettings = (List<Map<String, Object>>) config.get("commandSettings");
+                    if (commandSettings != null) {
+                        for (Map<String, Object> cmdSetting : commandSettings) {
+                            @SuppressWarnings("unchecked")
+                            List<Number> commandListIds = (List<Number>) cmdSetting.get("commandListIds");
+                            if (commandListIds != null) {
+                                // Load CommandList entities (these stay normalized)
+                                for (Number listId : commandListIds) {
+                                    CommandList cmdList = commandListRepository.findById(listId.longValue())
+                                            .orElse(null);
+                                    if (cmdList != null) {
+                                        Set<String> commands = cmdList.getItems().stream()
+                                                .map(CommandListItem::getCommandText)
+                                                .collect(Collectors.toSet());
+
+                                        if ("blacklist".equals(cmdList.getListType())) {
+                                            allBlacklistedCommands.addAll(commands);
+                                        } else if ("whitelist".equals(cmdList.getListType())) {
+                                            allWhitelistedCommands.addAll(commands);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // OLD: Fall back to normalized tables (backward compatibility)
+                    PolicyCommonSettings commonSettings = policy.getCommonSettings();
+                    if (commonSettings != null) {
+                        allProtocols.addAll(commonSettings.getAllowedProtocols().stream()
+                                .map(PolicyAllowedProtocol::getProtocol)
+                                .collect(Collectors.toSet()));
+
+                        allDbms.addAll(commonSettings.getAllowedDbms().stream()
+                                .map(PolicyAllowedDbms::getDbmsType)
+                                .collect(Collectors.toSet()));
+                    }
+
+                    // Load command settings
+                    for (PolicyCommandSettings cmdSettings : policy.getCommandSettings()) {
+                        for (CommandList cmdList : cmdSettings.getCommandLists()) {
+                            Set<String> commands = cmdList.getItems().stream()
+                                    .map(CommandListItem::getCommandText)
+                                    .collect(Collectors.toSet());
+
+                            if ("blacklist".equals(cmdList.getListType())) {
+                                allBlacklistedCommands.addAll(commands);
+                            } else if ("whitelist".equals(cmdList.getListType())) {
+                                allWhitelistedCommands.addAll(commands);
+                            }
+                        }
+                    }
+
+                    // Load time slots
+                    PolicyAllowedTime allowedTime = policy.getAllowedTime();
+                    if (allowedTime != null) {
+                        allTimeSlots.addAll(allowedTime.getTimeSlots().stream()
+                                .map(ts -> new TimeSlot(ts.getDayOfWeek(), ts.getHourStart(), ts.getHourEnd()))
+                                .collect(Collectors.toSet()));
+                    }
+
+                    // Load login control (IP filtering)
+                    PolicyLoginControl loginControl = policy.getLoginControl();
+                    if (loginControl != null) {
+                        if (ipFilteringType == null) {
+                            ipFilteringType = loginControl.getIpFilteringType();
+                        }
+                        allAllowedIps.addAll(loginControl.getAllowedIps().stream()
+                                .map(PolicyAllowedIp::getIpAddress)
+                                .collect(Collectors.toSet()));
+                    }
                 }
             }
 
@@ -162,5 +275,31 @@ public class PolicyFactLoader {
         }
 
         return request;
+    }
+
+    /**
+     * Convert day name string to integer (1=Monday, 7=Sunday)
+     */
+    private Integer convertDayNameToInteger(String dayName) {
+        if (dayName == null) {
+            return null;
+        }
+        return switch (dayName.toUpperCase()) {
+            case "MONDAY", "MON" -> 1;
+            case "TUESDAY", "TUE" -> 2;
+            case "WEDNESDAY", "WED" -> 3;
+            case "THURSDAY", "THU" -> 4;
+            case "FRIDAY", "FRI" -> 5;
+            case "SATURDAY", "SAT" -> 6;
+            case "SUNDAY", "SUN" -> 7;
+            default -> {
+                // Try to parse as integer
+                try {
+                    yield Integer.valueOf(dayName);
+                } catch (NumberFormatException e) {
+                    yield null;
+                }
+            }
+        };
     }
 }
