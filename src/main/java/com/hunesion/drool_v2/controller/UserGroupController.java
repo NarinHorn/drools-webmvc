@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
@@ -75,13 +76,33 @@ public class UserGroupController {
         return ResponseEntity.ok(updated);
     }
 
-    @Operation(summary = "Delete group", description = "Deletes a user group")
+    @Operation(summary = "Delete group", description = "Deletes a user group. All user memberships will be removed automatically.")
     @DeleteMapping("/{id}")
+    @Transactional
     public ResponseEntity<Map<String, String>> deleteGroup(@PathVariable Long id) {
-        groupRepository.deleteById(id);
+        UserGroup group = groupRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Group not found: " + id));
+        
+        // Remove all users from the group before deleting
+        // This clears the bidirectional relationship
+        Set<User> users = new HashSet<>(group.getUsers());
+        for (User user : users) {
+            user.getGroups().remove(group);
+            group.getUsers().remove(user);
+        }
+        
+        // Save users to persist the relationship removal
+        if (!users.isEmpty()) {
+            userRepository.saveAll(users);
+        }
+        
+        // Now delete the group (foreign key constraints should be satisfied)
+        groupRepository.delete(group);
+        
         Map<String, String> response = new HashMap<>();
         response.put("message", "Group deleted successfully");
         response.put("id", id.toString());
+        response.put("membersRemoved", String.valueOf(users.size()));
         return ResponseEntity.ok(response);
     }
 

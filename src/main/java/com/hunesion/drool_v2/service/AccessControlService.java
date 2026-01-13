@@ -7,6 +7,7 @@ import com.hunesion.drool_v2.repository.UserRepository;
 import org.kie.api.runtime.KieSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * AccessControlService - Evaluates access requests against policies using Drools
@@ -27,6 +28,7 @@ public class AccessControlService {
     /**
      * Check if a user has access to a specific endpoint
      */
+    @Transactional(readOnly = true)
     public AccessResult checkAccess(String username, String endpoint, String httpMethod) {
         User user = userRepository.findByUsername(username)
                 .orElse(null);
@@ -47,6 +49,8 @@ public class AccessControlService {
         AccessRequest request = new AccessRequest();
         request.setUsername(username);
         request.setUserRoles(user.getRoleNames());
+        // In checkAccess method, after line 49, add:
+        request.setUserGroups(user.getGroupNames());
         request.setEndpoint(endpoint);
         request.setHttpMethod(httpMethod);
         request.setDepartment(user.getDepartment());

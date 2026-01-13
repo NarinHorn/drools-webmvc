@@ -13,6 +13,8 @@ public class AccessRequest {
 
     private String username;
     private Set<String> userRoles = new HashSet<>();
+    // Add this field in AccessRequest class (after line 15)
+    private Set<String> userGroups = new HashSet<>();
     private String endpoint;
     private String httpMethod;
     private String department;
@@ -109,6 +111,28 @@ public class AccessRequest {
         if (endpoint == null || pattern == null) return false;
         // Pattern is already a regex (converted by PolicyService.convertEndpointToRegex)
         return endpoint.matches(pattern);
+    }
+
+    // Add getter and setter
+    public Set<String> getUserGroups() {
+        return userGroups;
+    }
+
+    public void setUserGroups(Set<String> userGroups) {
+        this.userGroups = userGroups;
+    }
+
+    // Add helper method (similar to hasRole)
+    public boolean hasGroup(String groupName) {
+        return userGroups != null && userGroups.contains(groupName);
+    }
+
+    public boolean hasAnyGroup(String... groupNames) {
+        if (userGroups == null) return false;
+        for (String group : groupNames) {
+            if (userGroups.contains(group)) return true;
+        }
+        return false;
     }
 
     @Override

@@ -3,6 +3,7 @@ package com.hunesion.drool_v2.dto;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -34,6 +35,7 @@ public class EquipmentPolicyDTO {
     private PolicyAllowedTimeDTO allowedTime;
     private List<PolicyCommandSettingsDTO> commandSettings;
     private PolicyLoginControlDTO loginControl;
+    private List<Map<String, Object>> policies;
 
     // Assignment IDs (for creating assignments)
     private Set<Long> userIds;

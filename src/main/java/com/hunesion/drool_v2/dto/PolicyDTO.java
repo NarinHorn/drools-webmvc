@@ -15,6 +15,8 @@ public class PolicyDTO {
     private String endpoint;
     private String httpMethod;
     private List<String> allowedRoles;
+    // Add this field in PolicyDTO class (after line 17)
+    private List<Long> groupIds;
     private Map<String, ConditionDTO> conditions;
     private String effect;
     private Integer priority;
@@ -101,6 +103,15 @@ public class PolicyDTO {
 
     public void setEnabled(Boolean enabled) {
         this.enabled = enabled;
+    }
+
+    // Add getter and setter
+    public List<Long> getGroupIds() {
+        return groupIds;
+    }
+
+    public void setGroupIds(List<Long> groupIds) {
+        this.groupIds = groupIds;
     }
 
     @Override

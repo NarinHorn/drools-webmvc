@@ -1,5 +1,75 @@
 
 
+SELECT
+    ap.policy_name,
+    ap.allowed_roles,
+    ug.group_name
+FROM access_policies ap
+         LEFT JOIN access_policy_group_assignments apga ON ap.id = apga.access_policy_id
+         LEFT JOIN user_groups ug ON apga.group_id = ug.id
+WHERE ap.policy_name = 'Manager Reports Access (Role)';
+
+SELECT
+    policy_name,
+    endpoint,
+    http_method,
+    allowed_roles,
+    enabled,
+    generated_drl
+FROM access_policies
+WHERE endpoint LIKE '/api/admin%';
+
+select * from access_policies where id = 13;
+
+-- Check both role and group assignments
+SELECT
+    ap.policy_name,
+    ap.allowed_roles,
+    ug.group_name
+FROM access_policies ap
+         LEFT JOIN access_policy_group_assignments apga ON ap.id = apga.access_policy_id
+         LEFT JOIN user_groups ug ON apga.group_id = ug.id
+WHERE ap.policy_name = 'Managers or IT Team Access';
+
+-- Check group assignments
+SELECT
+    apga.id,
+    ap.policy_name,
+    ug.group_name
+FROM access_policy_group_assignments apga
+         JOIN access_policies ap ON apga.access_policy_id = ap.id
+         JOIN user_groups ug ON apga.group_id = ug.id
+WHERE ap.policy_name = 'Sales Team Reports Access (Group)';
+
+-- Check foreign key constraints
+SELECT
+    tc.constraint_name,
+    tc.table_name,
+    kcu.column_name,
+    ccu.table_name AS foreign_table_name,
+    ccu.column_name AS foreign_column_name
+FROM information_schema.table_constraints AS tc
+         JOIN information_schema.key_column_usage AS kcu
+              ON tc.constraint_name = kcu.constraint_name
+         JOIN information_schema.constraint_column_usage AS ccu
+              ON ccu.constraint_name = tc.constraint_name
+WHERE tc.constraint_type = 'FOREIGN KEY'
+  AND tc.table_name = 'access_policy_group_assignments';
+
+-- Check if the table exists
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'public'
+  AND table_name = 'access_policy_group_assignments';
+
+-- Check table structure
+\d access_policy_group_assignments
+
+-- Expected columns:
+-- id (BIGSERIAL PRIMARY KEY)
+-- access_policy_id (BIGINT NOT NULL)
+-- group_id (BIGINT NOT NULL)
+
 -- Verify user is in group
 SELECT u.username, g.group_name
 FROM users u

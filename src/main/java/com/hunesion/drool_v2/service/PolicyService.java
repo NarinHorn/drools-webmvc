@@ -3,7 +3,10 @@ package com.hunesion.drool_v2.service;
 import com.hunesion.drool_v2.dto.ConditionDTO;
 import com.hunesion.drool_v2.dto.PolicyDTO;
 import com.hunesion.drool_v2.model.entity.AccessPolicy;
+import com.hunesion.drool_v2.model.entity.AccessPolicyGroupAssignment;
+import com.hunesion.drool_v2.model.entity.UserGroup;
 import com.hunesion.drool_v2.repository.AccessPolicyRepository;
+import com.hunesion.drool_v2.repository.UserGroupRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,13 +27,16 @@ public class PolicyService {
 
     private final AccessPolicyRepository accessPolicyRepository;
     private final DynamicRuleService dynamicRuleService;
+    private final UserGroupRepository userGroupRepository;
     private final ObjectMapper objectMapper;
 
     @Autowired
     public PolicyService(AccessPolicyRepository accessPolicyRepository,
-                         DynamicRuleService dynamicRuleService) {
+                         DynamicRuleService dynamicRuleService,
+                         UserGroupRepository userGroupRepository) {
         this.accessPolicyRepository = accessPolicyRepository;
         this.dynamicRuleService = dynamicRuleService;
+        this.userGroupRepository = userGroupRepository;
         this.objectMapper = new ObjectMapper();
     }
 
@@ -63,6 +69,12 @@ public class PolicyService {
         policy.setGeneratedDrl(drl);
 
         AccessPolicy saved = accessPolicyRepository.save(policy);
+        
+        // Create group assignments
+        createGroupAssignments(saved, dto);
+        
+        // Save again to persist group assignments
+        saved = accessPolicyRepository.save(saved);
         
         // Rebuild rules to include new policy
         dynamicRuleService.rebuildRules();
@@ -99,10 +111,16 @@ public class PolicyService {
             throw new RuntimeException("Failed to serialize policy data", e);
         }
 
+        // Clear existing group assignments
+        existing.getGroupAssignments().clear();
+        
         // Regenerate DRL
         String drl = generateDrl(dto);
         existing.setGeneratedDrl(drl);
 
+        // Create group assignments
+        createGroupAssignments(existing, dto);
+        
         AccessPolicy saved = accessPolicyRepository.save(existing);
         
         // Rebuild rules
@@ -183,6 +201,14 @@ public class PolicyService {
         } catch (JsonProcessingException e) {
             throw new RuntimeException("Failed to deserialize policy data", e);
         }
+        
+        // Convert group assignments to groupIds
+        if (policy.getGroupAssignments() != null && !policy.getGroupAssignments().isEmpty()) {
+            List<Long> groupIds = policy.getGroupAssignments().stream()
+                    .map(ga -> ga.getGroup().getId())
+                    .collect(Collectors.toList());
+            dto.setGroupIds(groupIds);
+        }
 
         return dto;
     }
@@ -252,12 +278,41 @@ public class PolicyService {
         }
         
         // Role check - at least one role must match
+        String roleCheck = null;
         if (dto.getAllowedRoles() != null && !dto.getAllowedRoles().isEmpty()) {
-            if (conditions.length() > 0) conditions.append(",\n");
-            String roleCheck = dto.getAllowedRoles().stream()
+            roleCheck = dto.getAllowedRoles().stream()
                     .map(role -> "hasRole(\"" + role + "\")")
                     .collect(Collectors.joining(" || "));
+        }
+        
+        // Group check - at least one group must match
+        String groupCheck = null;
+        if (dto.getGroupIds() != null && !dto.getGroupIds().isEmpty()) {
+            // Load group names from IDs
+            List<String> groupNames = dto.getGroupIds().stream()
+                    .map(groupId -> userGroupRepository.findById(groupId)
+                            .orElseThrow(() -> new RuntimeException("Group not found: " + groupId))
+                            .getGroupName())
+                    .collect(Collectors.toList());
+            
+            groupCheck = groupNames.stream()
+                    .map(group -> "hasGroup(\"" + group + "\")")
+                    .collect(Collectors.joining(" || "));
+        }
+        
+        // Combine role and group checks with OR if both exist, otherwise use whichever exists
+        if (roleCheck != null && groupCheck != null) {
+            // Both role and group checks exist - combine with OR
+            if (conditions.length() > 0) conditions.append(",\n");
+            conditions.append("            (").append(roleCheck).append(" || ").append(groupCheck).append(")");
+        } else if (roleCheck != null) {
+            // Only role check
+            if (conditions.length() > 0) conditions.append(",\n");
             conditions.append("            (").append(roleCheck).append(")");
+        } else if (groupCheck != null) {
+            // Only group check
+            if (conditions.length() > 0) conditions.append(",\n");
+            conditions.append("            (").append(groupCheck).append(")");
         }
         
         // Additional attribute conditions
@@ -371,5 +426,19 @@ public class PolicyService {
      */
     public String previewDrl(PolicyDTO dto) {
         return generateDrl(dto);
+    }
+    
+    /**
+     * Create group assignments for an AccessPolicy
+     */
+    private void createGroupAssignments(AccessPolicy policy, PolicyDTO dto) {
+        if (dto.getGroupIds() != null) {
+            dto.getGroupIds().forEach(groupId -> {
+                UserGroup group = userGroupRepository.findById(groupId)
+                        .orElseThrow(() -> new RuntimeException("Group not found: " + groupId));
+                AccessPolicyGroupAssignment assignment = new AccessPolicyGroupAssignment(policy, group);
+                policy.getGroupAssignments().add(assignment);
+            });
+        }
     }
 }

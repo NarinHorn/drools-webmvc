@@ -68,11 +68,11 @@ public class EquipmentController {
     @PostMapping
     public ResponseEntity<Equipment> createEquipment(@RequestBody Equipment equipment) {
         // Check if device name already exists (non-deleted)
-        if (equipment.getDeviceName() != null && 
+        if (equipment.getDeviceName() != null &&
             equipmentRepository.existsByDeviceNameAndIsDeletedFalse(equipment.getDeviceName())) {
             return ResponseEntity.badRequest().build();
         }
-        
+
         Equipment saved = equipmentRepository.save(equipment);
         return ResponseEntity.status(HttpStatus.CREATED).body(saved);
     }

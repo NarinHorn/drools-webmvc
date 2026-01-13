@@ -5,6 +5,8 @@ import com.fasterxml.jackson.annotation.JsonRawValue;
 import jakarta.persistence.*;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
+import java.util.HashSet;
+import java.util.Set;
 
 import java.time.LocalDateTime;
 
@@ -63,6 +65,19 @@ public class AccessPolicy {
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;
+
+    // Add this field in AccessPolicy class (after line 65, before @PrePersist)
+    @OneToMany(mappedBy = "accessPolicy", cascade = CascadeType.ALL, orphanRemoval = true)
+    private Set<AccessPolicyGroupAssignment> groupAssignments = new HashSet<>();
+
+    // Add getter and setter
+    public Set<AccessPolicyGroupAssignment> getGroupAssignments() {
+        return groupAssignments;
+    }
+
+    public void setGroupAssignments(Set<AccessPolicyGroupAssignment> groupAssignments) {
+        this.groupAssignments = groupAssignments;
+    }
 
     @PrePersist
     protected void onCreate() {
