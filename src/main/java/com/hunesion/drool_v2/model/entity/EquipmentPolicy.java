@@ -93,18 +93,6 @@ public class EquipmentPolicy {
     @OneToMany(mappedBy = "policy", cascade = CascadeType.ALL, orphanRemoval = true)
     private Set<PolicyRoleAssignment> roleAssignments = new HashSet<>();
 
-    @OneToOne(mappedBy = "policy", cascade = CascadeType.ALL, orphanRemoval = true)
-    private PolicyCommonSettings commonSettings;
-
-    @OneToOne(mappedBy = "policy", cascade = CascadeType.ALL, orphanRemoval = true)
-    private PolicyAllowedTime allowedTime;
-
-    @OneToOne(mappedBy = "policy", cascade = CascadeType.ALL, orphanRemoval = true)
-    private PolicyLoginControl loginControl;
-
-    @OneToMany(mappedBy = "policy", cascade = CascadeType.ALL, orphanRemoval = true)
-    private Set<PolicyCommandSettings> commandSettings = new HashSet<>();
-
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
@@ -271,38 +259,6 @@ public class EquipmentPolicy {
 
     public void setRoleAssignments(Set<PolicyRoleAssignment> roleAssignments) {
         this.roleAssignments = roleAssignments;
-    }
-
-    public PolicyCommonSettings getCommonSettings() {
-        return commonSettings;
-    }
-
-    public void setCommonSettings(PolicyCommonSettings commonSettings) {
-        this.commonSettings = commonSettings;
-    }
-
-    public PolicyAllowedTime getAllowedTime() {
-        return allowedTime;
-    }
-
-    public void setAllowedTime(PolicyAllowedTime allowedTime) {
-        this.allowedTime = allowedTime;
-    }
-
-    public PolicyLoginControl getLoginControl() {
-        return loginControl;
-    }
-
-    public void setLoginControl(PolicyLoginControl loginControl) {
-        this.loginControl = loginControl;
-    }
-
-    public Set<PolicyCommandSettings> getCommandSettings() {
-        return commandSettings;
-    }
-
-    public void setCommandSettings(Set<PolicyCommandSettings> commandSettings) {
-        this.commandSettings = commandSettings;
     }
 
     /**

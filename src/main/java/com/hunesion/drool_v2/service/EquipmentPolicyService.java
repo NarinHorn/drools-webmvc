@@ -290,87 +290,6 @@ public class EquipmentPolicyService {
         return map;
     }
 
-    // Deprecated: These methods are kept for backward compatibility but are no longer used
-    // Policy config is now stored in JSONB
-    @Deprecated
-    private PolicyCommonSettings convertCommonSettings(PolicyCommonSettingsDTO dto, EquipmentPolicy policy) {
-        PolicyCommonSettings settings = new PolicyCommonSettings();
-        settings.setPolicy(policy);
-        settings.setServicePort(dto.getServicePort());
-        settings.setIdleTimeMinutes(dto.getIdleTimeMinutes());
-        settings.setTimeoutMinutes(dto.getTimeoutMinutes());
-        settings.setBlockingPolicyType(dto.getBlockingPolicyType());
-        settings.setSessionBlockingCount(dto.getSessionBlockingCount());
-        settings.setMaxTelnetSessions(dto.getMaxTelnetSessions());
-        settings.setTelnetBorderless(dto.isTelnetBorderless());
-        settings.setMaxSshSessions(dto.getMaxSshSessions());
-        settings.setSshBorderless(dto.isSshBorderless());
-        settings.setMaxRdpSessions(dto.getMaxRdpSessions());
-        settings.setRdpBorderless(dto.isRdpBorderless());
-
-        // Add protocols
-        if (dto.getAllowedProtocols() != null) {
-            Set<PolicyAllowedProtocol> protocols = dto.getAllowedProtocols().stream()
-                    .map(p -> new PolicyAllowedProtocol(settings, p))
-                    .collect(Collectors.toSet());
-            settings.setAllowedProtocols(protocols);
-        }
-
-        // Add DBMS
-        if (dto.getAllowedDbms() != null) {
-            Set<PolicyAllowedDbms> dbms = dto.getAllowedDbms().stream()
-                    .map(d -> new PolicyAllowedDbms(settings, d))
-                    .collect(Collectors.toSet());
-            settings.setAllowedDbms(dbms);
-        }
-
-        return settings;
-    }
-
-    @Deprecated
-    private PolicyAllowedTime convertAllowedTime(PolicyAllowedTimeDTO dto, EquipmentPolicy policy) {
-        PolicyAllowedTime allowedTime = new PolicyAllowedTime();
-        allowedTime.setPolicy(policy);
-        allowedTime.setStartDate(dto.getStartDate());
-        allowedTime.setEndDate(dto.getEndDate());
-        allowedTime.setBorderless(dto.isBorderless());
-        allowedTime.setTimeZone(dto.getTimeZone());
-
-        if (dto.getTimeSlots() != null) {
-            Set<PolicyTimeSlot> timeSlots = dto.getTimeSlots().stream()
-                    .map(ts -> new PolicyTimeSlot(allowedTime, ts.getDayOfWeek(), ts.getHourStart(), ts.getHourEnd()))
-                    .collect(Collectors.toSet());
-            allowedTime.setTimeSlots(timeSlots);
-        }
-
-        return allowedTime;
-    }
-
-    @Deprecated
-    private PolicyLoginControl convertLoginControl(PolicyLoginControlDTO dto, EquipmentPolicy policy) {
-        PolicyLoginControl loginControl = new PolicyLoginControl();
-        loginControl.setPolicy(policy);
-        loginControl.setIpFilteringType(dto.getIpFilteringType());
-        loginControl.setAccountLockEnabled(dto.isAccountLockEnabled());
-        loginControl.setMaxFailureAttempts(dto.getMaxFailureAttempts());
-        loginControl.setLockoutDurationMinutes(dto.getLockoutDurationMinutes());
-        loginControl.setTwoFactorType(dto.getTwoFactorType());
-
-        if (dto.getAllowedIps() != null) {
-            Set<PolicyAllowedIp> allowedIps = dto.getAllowedIps().stream()
-                    .map(ip -> {
-                        PolicyAllowedIp allowedIp = new PolicyAllowedIp();
-                        allowedIp.setPolicy(loginControl);
-                        allowedIp.setIpAddress(ip);
-                        return allowedIp;
-                    })
-                    .collect(Collectors.toSet());
-            loginControl.setAllowedIps(allowedIps);
-        }
-
-        return loginControl;
-    }
-
     private void createAssignments(EquipmentPolicy policy, EquipmentPolicyDTO dto) {
         // User assignments
         if (dto.getUserIds() != null) {
@@ -422,26 +341,5 @@ public class EquipmentPolicyService {
 
         // Create new assignments
         createAssignments(policy, dto);
-    }
-
-    // Deprecated: These update methods are no longer used - policy config is now in JSONB
-    @Deprecated
-    private void updateCommonSettings(EquipmentPolicy policy, PolicyCommonSettingsDTO dto) {
-        // No longer used - settings are in JSONB
-    }
-
-    @Deprecated
-    private void updateAllowedTime(EquipmentPolicy policy, PolicyAllowedTimeDTO dto) {
-        // No longer used - settings are in JSONB
-    }
-
-    @Deprecated
-    private void updateCommandSettings(EquipmentPolicy policy, List<PolicyCommandSettingsDTO> dtoList) {
-        // No longer used - settings are in JSONB
-    }
-
-    @Deprecated
-    private void updateLoginControl(EquipmentPolicy policy, PolicyLoginControlDTO dto) {
-        // No longer used - settings are in JSONB
     }
 }

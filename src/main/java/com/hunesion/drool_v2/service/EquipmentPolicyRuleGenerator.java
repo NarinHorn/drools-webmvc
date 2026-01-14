@@ -1,9 +1,6 @@
 package com.hunesion.drool_v2.service;
 
 import com.hunesion.drool_v2.model.entity.EquipmentPolicy;
-import com.hunesion.drool_v2.model.entity.PolicyCommonSettings;
-import com.hunesion.drool_v2.model.entity.PolicyCommandSettings;
-import com.hunesion.drool_v2.model.entity.PolicyLoginControl;
 import com.hunesion.drool_v2.repository.EquipmentPolicyRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -69,15 +66,14 @@ public class EquipmentPolicyRuleGenerator {
         // Check if policy is assigned
         drl.append("            isAssignedToPolicy(").append(policy.getId()).append(")\n");
 
-        // Build conditions based on policy settings
+        // Build conditions based on policy settings (JSONB is the single source of truth)
         StringBuilder conditions = new StringBuilder();
 
-        // Check if policy uses JSONB config (new approach) or normalized tables (old approach)
         String policyConfigJson = policy.getPolicyConfig();
         if (policyConfigJson != null && !policyConfigJson.isEmpty()) {
-            // NEW: Use cached JSONB config parsing
+            // Use cached JSONB config parsing
             Map<String, Object> config = policyConfigCache.getParsedConfig(
-                policy.getId(), 
+                policy.getId(),
                 policyConfigJson
             );
 
@@ -100,10 +96,11 @@ public class EquipmentPolicyRuleGenerator {
                     String dbmsCheck = dbms.stream()
                             .map(d -> "hasDbmsType(\"" + d + "\")")
                             .collect(Collectors.joining(" || "));
+                    // Always add comma since isAssignedToPolicy is already on previous line
                     if (conditions.length() > 0) {
                         conditions.append("            , (").append(dbmsCheck).append(")\n");
                     } else {
-                        conditions.append("            (").append(dbmsCheck).append(")\n");
+                        conditions.append("            , (").append(dbmsCheck).append(")\n");
                     }
                 }
             }
@@ -115,10 +112,11 @@ public class EquipmentPolicyRuleGenerator {
                 @SuppressWarnings("unchecked")
                 List<Map<String, Object>> timeSlots = (List<Map<String, Object>>) allowedTime.get("timeSlots");
                 if (timeSlots != null && !timeSlots.isEmpty()) {
+                    // Always add comma since isAssignedToPolicy is already on previous line
                     if (conditions.length() > 0) {
                         conditions.append("            , isWithinAllowedTime()\n");
                     } else {
-                        conditions.append("            isWithinAllowedTime()\n");
+                        conditions.append("            , isWithinAllowedTime()\n");
                     }
                 }
             }
@@ -130,10 +128,11 @@ public class EquipmentPolicyRuleGenerator {
                 for (Map<String, Object> cmdSetting : commandSettings) {
                     String controlMethod = (String) cmdSetting.get("controlMethod");
                     if ("blacklist".equals(controlMethod)) {
+                        // Always add comma since isAssignedToPolicy is already on previous line
                         if (conditions.length() > 0) {
                             conditions.append("            , !isCommandBlocked(command)\n");
                         } else {
-                            conditions.append("            !isCommandBlocked(command)\n");
+                            conditions.append("            , !isCommandBlocked(command)\n");
                         }
                     }
                 }
@@ -145,10 +144,11 @@ public class EquipmentPolicyRuleGenerator {
             if (loginControl != null) {
                 String ipFilteringType = (String) loginControl.get("ipFilteringType");
                 if (ipFilteringType != null && !"no_restrictions".equals(ipFilteringType)) {
+                    // Always add comma since isAssignedToPolicy is already on previous line
                     if (conditions.length() > 0) {
                         conditions.append("            , isIpAllowed(clientIp)\n");
                     } else {
-                        conditions.append("            isIpAllowed(clientIp)\n");
+                        conditions.append("            , isIpAllowed(clientIp)\n");
                     }
                 }
             }
@@ -166,68 +166,9 @@ public class EquipmentPolicyRuleGenerator {
 
                     String conditionStr = buildConditionFromJson(attribute, operator, value);
                     if (conditionStr != null) {
-                        if (conditions.length() > 0) conditions.append(",\n");
-                        conditions.append("            ").append(conditionStr);
+                        // Always add comma since isAssignedToPolicy is already on previous line
+                        conditions.append("            , ").append(conditionStr).append("\n");
                     }
-                }
-            }
-        } else {
-            // OLD: Fall back to normalized tables (backward compatibility)
-            PolicyCommonSettings commonSettings = policy.getCommonSettings();
-            if (commonSettings != null && !commonSettings.getAllowedProtocols().isEmpty()) {
-                List<String> protocols = commonSettings.getAllowedProtocols().stream()
-                        .map(p -> p.getProtocol())
-                        .collect(Collectors.toList());
-
-                String protocolCheck = protocols.stream()
-                        .map(p -> "hasProtocol(\"" + p + "\")")
-                        .collect(Collectors.joining(" || "));
-
-                conditions.append("            , (").append(protocolCheck).append(")\n");
-            }
-
-            if (commonSettings != null && !commonSettings.getAllowedDbms().isEmpty()) {
-                List<String> dbms = commonSettings.getAllowedDbms().stream()
-                        .map(d -> d.getDbmsType())
-                        .collect(Collectors.toList());
-
-                String dbmsCheck = dbms.stream()
-                        .map(d -> "hasDbmsType(\"" + d + "\")")
-                        .collect(Collectors.joining(" || "));
-
-                if (conditions.length() > 0) {
-                    conditions.append("            , (").append(dbmsCheck).append(")\n");
-                } else {
-                    conditions.append("            (").append(dbmsCheck).append(")\n");
-                }
-            }
-
-            if (policy.getAllowedTime() != null && !policy.getAllowedTime().getTimeSlots().isEmpty()) {
-                if (conditions.length() > 0) {
-                    conditions.append("            , isWithinAllowedTime()\n");
-                } else {
-                    conditions.append("            isWithinAllowedTime()\n");
-                }
-            }
-
-            if (!policy.getCommandSettings().isEmpty()) {
-                for (PolicyCommandSettings cmdSettings : policy.getCommandSettings()) {
-                    if ("blacklist".equals(cmdSettings.getControlMethod())) {
-                        if (conditions.length() > 0) {
-                            conditions.append("            , !isCommandBlocked(command)\n");
-                        } else {
-                            conditions.append("            !isCommandBlocked(command)\n");
-                        }
-                    }
-                }
-            }
-
-            PolicyLoginControl loginControl = policy.getLoginControl();
-            if (loginControl != null && !"no_restrictions".equals(loginControl.getIpFilteringType())) {
-                if (conditions.length() > 0) {
-                    conditions.append("            , isIpAllowed(clientIp)\n");
-                } else {
-                    conditions.append("            isIpAllowed(clientIp)\n");
                 }
             }
         }

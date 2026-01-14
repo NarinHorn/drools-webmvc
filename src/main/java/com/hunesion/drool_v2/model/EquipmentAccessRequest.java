@@ -1,7 +1,9 @@
 package com.hunesion.drool_v2.model;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -44,6 +46,9 @@ public class EquipmentAccessRequest {
     // IP filtering (set by PolicyFactLoader)
     private Set<String> allowedIps = new HashSet<>();
     private String ipFilteringType; // 'allow_specified_ips', 'ip_band_allowed', 'no_restrictions'
+
+    // Custom attributes map (for flexible conditions from frontend)
+    private Map<String, Object> attributes = new HashMap<>();
 
     // Helper class for time slots
     public static class TimeSlot {
@@ -352,5 +357,21 @@ public class EquipmentAccessRequest {
 
     public void setIpFilteringType(String ipFilteringType) {
         this.ipFilteringType = ipFilteringType;
+    }
+
+    public Map<String, Object> getAttributes() {
+        return attributes;
+    }
+
+    public void setAttributes(Map<String, Object> attributes) {
+        this.attributes = attributes;
+    }
+
+    public void setAttribute(String key, Object value) {
+        this.attributes.put(key, value);
+    }
+
+    public Object getAttribute(String key) {
+        return this.attributes.get(key);
     }
 }

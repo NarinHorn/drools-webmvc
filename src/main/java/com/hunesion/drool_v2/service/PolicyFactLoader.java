@@ -62,6 +62,15 @@ public class PolicyFactLoader {
             if (equipment != null) {
                 request.setEquipmentName(equipment.getDeviceName());
                 request.setProtocol(equipment.getProtocol());
+                request.setDbmsType(equipment.getProtocol()); // Set DBMS type from protocol if applicable
+                
+                // Populate attributes map for custom conditions
+                request.setAttribute("deviceType", equipment.getDeviceType());
+                request.setAttribute("deviceName", equipment.getDeviceName());
+                request.setAttribute("hostName", equipment.getHostName());
+                request.setAttribute("ipAddress", equipment.getIpAddress());
+                request.setAttribute("protocol", equipment.getProtocol());
+                request.setAttribute("port", equipment.getPort());
             }
         }
 
@@ -113,9 +122,9 @@ public class PolicyFactLoader {
                 // Check if policy uses JSONB config (new approach) or normalized tables (old approach)
                 String policyConfigJson = policy.getPolicyConfig();
                 if (policyConfigJson != null && !policyConfigJson.isEmpty()) {
-                    // NEW: Use cached JSONB config parsing
+                    // Use cached JSONB config parsing (single source of truth)
                     Map<String, Object> config = policyConfigCache.getParsedConfig(
-                        policy.getId(), 
+                        policy.getId(),
                         policyConfigJson
                     );
 
@@ -159,12 +168,12 @@ public class PolicyFactLoader {
                                         String dayStr = dayOfWeekObj.toString().toUpperCase();
                                         dayOfWeek = convertDayNameToInteger(dayStr);
                                     }
-                                    
-                                    Integer hourStart = hourStartObj instanceof Integer ? 
+
+                                    Integer hourStart = hourStartObj instanceof Integer ?
                                         (Integer) hourStartObj : Integer.valueOf(hourStartObj.toString());
-                                    Integer hourEnd = hourEndObj instanceof Integer ? 
+                                    Integer hourEnd = hourEndObj instanceof Integer ?
                                         (Integer) hourEndObj : Integer.valueOf(hourEndObj.toString());
-                                    
+
                                     if (dayOfWeek != null) {
                                         allTimeSlots.add(new TimeSlot(dayOfWeek, hourStart, hourEnd));
                                     }
@@ -215,52 +224,6 @@ public class PolicyFactLoader {
                                 }
                             }
                         }
-                    }
-                } else {
-                    // OLD: Fall back to normalized tables (backward compatibility)
-                    PolicyCommonSettings commonSettings = policy.getCommonSettings();
-                    if (commonSettings != null) {
-                        allProtocols.addAll(commonSettings.getAllowedProtocols().stream()
-                                .map(PolicyAllowedProtocol::getProtocol)
-                                .collect(Collectors.toSet()));
-
-                        allDbms.addAll(commonSettings.getAllowedDbms().stream()
-                                .map(PolicyAllowedDbms::getDbmsType)
-                                .collect(Collectors.toSet()));
-                    }
-
-                    // Load command settings
-                    for (PolicyCommandSettings cmdSettings : policy.getCommandSettings()) {
-                        for (CommandList cmdList : cmdSettings.getCommandLists()) {
-                            Set<String> commands = cmdList.getItems().stream()
-                                    .map(CommandListItem::getCommandText)
-                                    .collect(Collectors.toSet());
-
-                            if ("blacklist".equals(cmdList.getListType())) {
-                                allBlacklistedCommands.addAll(commands);
-                            } else if ("whitelist".equals(cmdList.getListType())) {
-                                allWhitelistedCommands.addAll(commands);
-                            }
-                        }
-                    }
-
-                    // Load time slots
-                    PolicyAllowedTime allowedTime = policy.getAllowedTime();
-                    if (allowedTime != null) {
-                        allTimeSlots.addAll(allowedTime.getTimeSlots().stream()
-                                .map(ts -> new TimeSlot(ts.getDayOfWeek(), ts.getHourStart(), ts.getHourEnd()))
-                                .collect(Collectors.toSet()));
-                    }
-
-                    // Load login control (IP filtering)
-                    PolicyLoginControl loginControl = policy.getLoginControl();
-                    if (loginControl != null) {
-                        if (ipFilteringType == null) {
-                            ipFilteringType = loginControl.getIpFilteringType();
-                        }
-                        allAllowedIps.addAll(loginControl.getAllowedIps().stream()
-                                .map(PolicyAllowedIp::getIpAddress)
-                                .collect(Collectors.toSet()));
                     }
                 }
             }

@@ -1,6 +1,12 @@
-# Complete Testing Flow Guide - Equipment Policy Management System V2
+# Complete Testing Flow Guide - Equipment Policy Management System V2 (JSONB Implementation)
 
-This document provides a comprehensive step-by-step testing guide for the new Equipment Policy Management System with Drools integration. It covers all aspects including user groups, equipment policies, policy assignments, and access control evaluation.
+This document provides a comprehensive step-by-step testing guide for the Equipment Policy Management System with Drools integration and JSONB-based policy configuration. It covers all aspects including user groups, equipment policies, policy assignments, and access control evaluation.
+
+**Key Implementation Notes:**
+- Equipment policies now use **JSONB `policy_config`** field instead of normalized tables
+- All policy settings (commonSettings, allowedTime, loginControl, commandSettings) are stored in a single JSONB column
+- Supports **customConditions** and **customMetadata** for flexible frontend customization
+- Policy configuration is cached for performance (30-minute TTL, 1000 entries)
 
 ---
 
@@ -48,7 +54,7 @@ curl http://localhost:8081/api/public/info
 ### Verify Database Schema
 
 ```sql
--- Check if all tables exist
+-- Check if all tables exist (JSONB implementation - no normalized policy tables)
 SELECT table_name 
 FROM information_schema.tables 
 WHERE table_schema = 'public' 
@@ -60,19 +66,19 @@ WHERE table_schema = 'public'
     'policy_group_assignments',
     'policy_equipment_assignments',
     'policy_role_assignments',
-    'policy_common_settings',
-    'policy_allowed_protocols',
-    'policy_allowed_dbms',
-    'policy_allowed_time',
-    'policy_time_slots',
-    'policy_command_settings',
     'command_lists',
     'command_list_items',
-    'policy_command_lists',
-    'policy_login_control',
-    'policy_allowed_ips'
+    'access_policies',
+    'access_policy_group_assignments'
   )
 ORDER BY table_name;
+
+-- Verify equipment_policies has policy_config JSONB column
+SELECT column_name, data_type 
+FROM information_schema.columns 
+WHERE table_name = 'equipment_policies' 
+  AND column_name = 'policy_config';
+-- Expected: policy_config | jsonb
 ```
 
 ---
@@ -82,9 +88,16 @@ ORDER BY table_name;
 ### Step 1: Run Database Migration Scripts
 
 ```bash
-# Run the equipment policy schema creation script
-psql -U postgres -d abacdb -f src/main/resources/sql/create_equipment_policy_schema.sql
+# Run the initial data script (includes schema setup and test data)
+psql -U postgres -d abacdb -f src/main/resources/sql/initial_data_sql_v2.sql
 ```
+
+**Note:** The `initial_data_sql_v2.sql` script includes:
+- Roles, Users, User Groups
+- Access Policies (with group assignments)
+- Equipment Policies (with JSONB `policy_config`)
+- Equipment, Command Lists
+- Policy Assignments
 
 ### Step 2: Verify Initial Data
 
@@ -263,14 +276,7 @@ DELETE http://localhost:8081/api/user-groups/1
 }
 ```
 
-**Note:** This will also remove all group memberships (cascade delete)
-My test Result error when group have member:
-{
-  "timestamp": "2026-01-11T12:49:49.781Z",
-  "status": 500,
-  "error": "Internal Server Error",
-  "path": "/api/equipment-policies"
-}
+**Note:** This will also remove all group memberships automatically. The delete operation handles foreign key constraints by removing members first.
 
 ---
 
@@ -342,26 +348,25 @@ Content-Type: application/json
 }
 ```
 
-**Expected Response:** `201 Created` with full policy details
-My test Result:
-{
-  "timestamp": "2026-01-11T12:49:49.781Z",
-  "status": 500,
-  "error": "Internal Server Error",
-  "path": "/api/equipment-policies"
-}
-But it inserts into the table.
+**Expected Response:** `201 Created` with full policy details including `policyConfig` JSONB field
 
 **Database Verification:**
 ```sql
--- Check policy was created
-SELECT * FROM equipment_policies WHERE policy_name = 'IT Team Multi-Protocol Access';
+-- Check policy was created with JSONB config
+SELECT 
+  id, 
+  policy_name, 
+  policy_config::jsonb->'commonSettings'->>'allowedProtocols' as protocols,
+  policy_config::jsonb->'commonSettings'->>'allowedDbms' as dbms
+FROM equipment_policies 
+WHERE policy_name = 'IT Team Multi-Protocol Access';
 
--- Check protocols were added
-SELECT protocol FROM policy_allowed_protocols 
-WHERE policy_id = (SELECT id FROM policy_common_settings WHERE policy_id = 2);
+-- View full policy_config JSONB structure
+SELECT policy_config::jsonb 
+FROM equipment_policies 
+WHERE policy_name = 'IT Team Multi-Protocol Access';
 
--- Expected: SSH, TELNET, RDP
+-- Expected: protocols should contain ["SSH", "TELNET", "RDP"]
 ```
 
 ### Test Case 3: Create Policy with Time Restrictions
@@ -393,22 +398,25 @@ Content-Type: application/json
   }
 }
 ```
-My test Result:
-{
-  "timestamp": "2026-01-11T12:49:49.781Z",
-  "status": 500,
-  "error": "Internal Server Error",
-  "path": "/api/equipment-policies"
-}
-
 **Expected Response:** `201 Created`
 
 **Database Verification:**
 ```sql
--- Check time slots were created
-SELECT day_of_week, hour_start, hour_end 
-FROM policy_time_slots 
-WHERE policy_id = (SELECT id FROM policy_allowed_time WHERE policy_id = 3)
+-- Check time slots in JSONB policy_config
+SELECT 
+  policy_name,
+  jsonb_array_elements(policy_config::jsonb->'allowedTime'->'timeSlots') as time_slot
+FROM equipment_policies 
+WHERE policy_name = 'Business Hours Access';
+
+-- Or extract specific fields
+SELECT 
+  policy_name,
+  jsonb_array_elements(policy_config::jsonb->'allowedTime'->'timeSlots')->>'dayOfWeek' as day_of_week,
+  jsonb_array_elements(policy_config::jsonb->'allowedTime'->'timeSlots')->>'hourStart' as hour_start,
+  jsonb_array_elements(policy_config::jsonb->'allowedTime'->'timeSlots')->>'hourEnd' as hour_end
+FROM equipment_policies 
+WHERE policy_name = 'Business Hours Access'
 ORDER BY day_of_week, hour_start;
 
 -- Expected: 5 rows (Monday-Friday, 9-18)
@@ -461,12 +469,12 @@ Content-Type: application/json
   "enabled": true,
   "priority": 100,
   "loginControl": {
-    "ipFilteringType": "allow_specified_ips",
+    "ipFilteringType": "whitelist",
     "allowedIps": ["192.168.1.0/24", "10.0.0.1"],
     "accountLockEnabled": true,
     "maxFailureAttempts": 3,
     "lockoutDurationMinutes": 30,
-    "twoFactorType": "OTP"
+    "twoFactorType": "none"
   }
 }
 ```
@@ -475,12 +483,20 @@ Content-Type: application/json
 
 **Database Verification:**
 ```sql
--- Check login control was created
-SELECT * FROM policy_login_control WHERE policy_id = 5;
+-- Check login control in JSONB policy_config
+SELECT 
+  policy_name,
+  policy_config::jsonb->'loginControl'->>'ipFilteringType' as ip_filtering_type,
+  policy_config::jsonb->'loginControl'->'allowedIps' as allowed_ips
+FROM equipment_policies 
+WHERE policy_name = 'Restricted IP Access';
 
--- Check allowed IPs were added
-SELECT ip_address FROM policy_allowed_ips 
-WHERE policy_id = (SELECT id FROM policy_login_control WHERE policy_id = 5);
+-- Extract allowed IPs array
+SELECT 
+  policy_name,
+  jsonb_array_elements_text(policy_config::jsonb->'loginControl'->'allowedIps') as ip_address
+FROM equipment_policies 
+WHERE policy_name = 'Restricted IP Access';
 
 -- Expected: 192.168.1.0/24, 10.0.0.1
 ```
@@ -520,6 +536,17 @@ Content-Type: application/json
   "loginControl": {
     "ipFilteringType": "no_restrictions",
     "twoFactorType": "none"
+  },
+  "customConditions": {
+    "deviceType": {
+      "operator": "equals",
+      "value": "LINUX_SERVER"
+    }
+  },
+  "customMetadata": {
+    "createdBy": "admin",
+    "department": "IT",
+    "notes": "Complete policy example"
   },
   "userIds": [1, 2],
   "groupIds": [1]
@@ -586,7 +613,7 @@ DELETE http://localhost:8081/api/equipment-policies/1
 }
 ```
 
-**Note:** This will cascade delete all related settings and assignments
+**Note:** This will cascade delete all related assignments. The JSONB `policy_config` is automatically deleted with the policy.
 
 ---
 
@@ -735,7 +762,7 @@ Content-Type: application/json
 
 ---
 
-## ⚙️ Testing Policy Settings
+## ⚙️ Testing Policy Settings (JSONB Verification)
 
 ### Test Case 1: Verify Protocol Settings
 
@@ -744,41 +771,64 @@ Content-Type: application/json
 GET http://localhost:8081/api/equipment-policies/2
 ```
 
-**Expected Response:** Should include commonSettings with protocols
+**Expected Response:** Should include `policyConfig` JSONB with `commonSettings.allowedProtocols`
 
 **Database Verification:**
 ```sql
--- Get all protocols for a policy
-SELECT p.policy_name, pap.protocol
-FROM equipment_policies p
-JOIN policy_common_settings pcs ON p.id = pcs.policy_id
-JOIN policy_allowed_protocols pap ON pcs.id = pap.policy_id
-WHERE p.id = 2;
+-- Get all protocols from JSONB policy_config
+SELECT 
+  policy_name,
+  jsonb_array_elements_text(policy_config::jsonb->'commonSettings'->'allowedProtocols') as protocol
+FROM equipment_policies 
+WHERE id = 2;
+
+-- Or get as array
+SELECT 
+  policy_name,
+  policy_config::jsonb->'commonSettings'->>'allowedProtocols' as protocols
+FROM equipment_policies 
+WHERE id = 2;
 ```
 
 ### Test Case 2: Verify Time Slots
 
 **Database Verification:**
 ```sql
--- Get all time slots for a policy
-SELECT p.policy_name, pts.day_of_week, pts.hour_start, pts.hour_end
-FROM equipment_policies p
-JOIN policy_allowed_time pat ON p.id = pat.policy_id
-JOIN policy_time_slots pts ON pat.id = pts.policy_id
-WHERE p.id = 3
-ORDER BY pts.day_of_week, pts.hour_start;
+-- Get all time slots from JSONB policy_config
+SELECT 
+  policy_name,
+  jsonb_array_elements(policy_config::jsonb->'allowedTime'->'timeSlots')->>'dayOfWeek' as day_of_week,
+  jsonb_array_elements(policy_config::jsonb->'allowedTime'->'timeSlots')->>'hourStart' as hour_start,
+  jsonb_array_elements(policy_config::jsonb->'allowedTime'->'timeSlots')->>'hourEnd' as hour_end
+FROM equipment_policies 
+WHERE id = 3
+ORDER BY day_of_week, hour_start;
 ```
 
 ### Test Case 3: Verify IP Filtering
 
 **Database Verification:**
 ```sql
--- Get allowed IPs for a policy
-SELECT p.policy_name, plc.ip_filtering_type, pai.ip_address
-FROM equipment_policies p
-JOIN policy_login_control plc ON p.id = plc.policy_id
-LEFT JOIN policy_allowed_ips pai ON plc.id = pai.policy_id
-WHERE p.id = 5;
+-- Get IP filtering settings from JSONB policy_config
+SELECT 
+  policy_name,
+  policy_config::jsonb->'loginControl'->>'ipFilteringType' as ip_filtering_type,
+  jsonb_array_elements_text(policy_config::jsonb->'loginControl'->'allowedIps') as ip_address
+FROM equipment_policies 
+WHERE id = 5;
+```
+
+### Test Case 4: Verify Custom Conditions and Metadata
+
+**Database Verification:**
+```sql
+-- Check customConditions (flexible fields from frontend)
+SELECT 
+  policy_name,
+  policy_config::jsonb->'customConditions' as custom_conditions,
+  policy_config::jsonb->'customMetadata' as custom_metadata
+FROM equipment_policies 
+WHERE policy_config::jsonb->'customConditions' IS NOT NULL;
 ```
 
 ---
@@ -814,8 +864,19 @@ Look for:
 **Step 3: Verify Rule Content (Database)**
 
 ```sql
--- Rules are generated on-the-fly, check if policy exists
-SELECT id, policy_name, enabled, priority
+-- Check if policy exists and has generated DRL
+SELECT 
+  id, 
+  policy_name, 
+  enabled, 
+  priority,
+  generated_rule_drl IS NOT NULL as has_drl,
+  policy_config IS NOT NULL as has_config
+FROM equipment_policies
+WHERE policy_name = 'Test Rule Generation';
+
+-- View generated DRL (if stored)
+SELECT generated_rule_drl
 FROM equipment_policies
 WHERE policy_name = 'Test Rule Generation';
 ```
@@ -1002,7 +1063,7 @@ X-Username: admin
 ### Test Case 5: IP Filtering - Allowed IP
 
 **Setup:**
-1. Create policy with IP filtering: `allow_specified_ips`
+1. Create policy with IP filtering: `whitelist`
 2. Add allowed IP: `192.168.1.100`
 
 **Request:**
@@ -1399,28 +1460,42 @@ POST http://localhost:8081/api/equipment-policies
 - Check application logs for stack trace
 
 **Possible Causes:**
-1. Missing entity relationships (commonSettings, etc.)
+1. Invalid JSONB structure in `policy_config`
 2. Transaction rollback issue
 3. Drools rule generation error
+4. JSON parsing error in PolicyConfigCache
 
 **Solution:**
 1. Check application logs for detailed error
-2. Verify all related entities are created
-3. Check database foreign key constraints
+2. Verify `policy_config` JSONB is valid JSON
+3. Check database for policy existence
 4. Verify Drools rule compilation
 
 **Debug Query:**
 ```sql
--- Check if policy has all required relationships
+-- Check if policy has valid JSONB config
 SELECT 
-  p.id,
-  p.policy_name,
-  CASE WHEN pcs.id IS NULL THEN 'Missing' ELSE 'OK' END as common_settings,
-  CASE WHEN pat.id IS NULL THEN 'Missing' ELSE 'OK' END as allowed_time
-FROM equipment_policies p
-LEFT JOIN policy_common_settings pcs ON p.id = pcs.policy_id
-LEFT JOIN policy_allowed_time pat ON p.id = pat.policy_id
-WHERE p.id = <policy_id>;
+  id,
+  policy_name,
+  CASE 
+    WHEN policy_config IS NULL THEN 'Missing Config'
+    WHEN policy_config::text = 'null' THEN 'Null Config'
+    ELSE 'OK'
+  END as config_status,
+  policy_config IS NOT NULL as has_config,
+  jsonb_typeof(policy_config::jsonb) as config_type
+FROM equipment_policies
+WHERE id = <policy_id>;
+
+-- Validate JSONB structure
+SELECT 
+  policy_name,
+  policy_config::jsonb->'commonSettings' IS NOT NULL as has_common_settings,
+  policy_config::jsonb->'allowedTime' IS NOT NULL as has_allowed_time,
+  policy_config::jsonb->'loginControl' IS NOT NULL as has_login_control,
+  policy_config::jsonb->'commandSettings' IS NOT NULL as has_command_settings
+FROM equipment_policies
+WHERE id = <policy_id>;
 ```
 
 ### Issue 2: Group Deletion Fails with Members
@@ -1495,10 +1570,13 @@ WHERE group_id = <group_id>;
 3. Time zone mismatch
 
 **Solution:**
-1. Verify time slots in database:
+1. Verify time slots in JSONB policy_config:
    ```sql
-   SELECT * FROM policy_time_slots
-   WHERE policy_id = (SELECT id FROM policy_allowed_time WHERE policy_id = <policy_id>);
+   SELECT 
+     policy_name,
+     jsonb_array_elements(policy_config::jsonb->'allowedTime'->'timeSlots') as time_slot
+   FROM equipment_policies
+   WHERE id = <policy_id>;
    ```
 
 2. Ensure requestTime is set:
@@ -1508,9 +1586,13 @@ WHERE group_id = <group_id>;
    }
    ```
 
-3. Check time zone:
+3. Check time zone in JSONB:
    ```sql
-   SELECT time_zone FROM policy_allowed_time WHERE policy_id = <policy_id>;
+   SELECT 
+     policy_name,
+     policy_config::jsonb->'allowedTime'->>'timeZone' as time_zone
+   FROM equipment_policies 
+   WHERE id = <policy_id>;
    ```
 
 ### Issue 5: Command Blacklist Not Working
@@ -1524,16 +1606,23 @@ WHERE group_id = <group_id>;
 3. Command matching logic issue
 
 **Solution:**
-1. Verify command list linkage:
+1. Verify command settings in JSONB policy_config:
    ```sql
-   SELECT pcs.id, cl.list_name, cl.list_type
-   FROM policy_command_settings pcs
-   JOIN policy_command_lists pcl ON pcs.id = pcl.policy_id
-   JOIN command_lists cl ON pcl.command_list_id = cl.id
-   WHERE pcs.policy_id = <policy_id>;
+   SELECT 
+     policy_name,
+     jsonb_array_elements(policy_config::jsonb->'commandSettings') as command_setting
+   FROM equipment_policies
+   WHERE id = <policy_id>;
+   
+   -- Extract command list IDs
+   SELECT 
+     policy_name,
+     jsonb_array_elements(policy_config::jsonb->'commandSettings')->>'commandListIds' as command_list_ids
+   FROM equipment_policies
+   WHERE id = <policy_id>;
    ```
 
-2. Check command list items:
+2. Check command list items (still normalized):
    ```sql
    SELECT command_text FROM command_list_items
    WHERE command_list_id = <command_list_id>;
@@ -1557,16 +1646,22 @@ WHERE group_id = <group_id>;
 3. IP not in allowed list
 
 **Solution:**
-1. Verify IP filtering type:
+1. Verify IP filtering type in JSONB:
    ```sql
-   SELECT ip_filtering_type FROM policy_login_control
-   WHERE policy_id = <policy_id>;
+   SELECT 
+     policy_name,
+     policy_config::jsonb->'loginControl'->>'ipFilteringType' as ip_filtering_type
+   FROM equipment_policies
+   WHERE id = <policy_id>;
    ```
 
-2. Check allowed IPs:
+2. Check allowed IPs in JSONB:
    ```sql
-   SELECT ip_address FROM policy_allowed_ips
-   WHERE policy_id = (SELECT id FROM policy_login_control WHERE policy_id = <policy_id>);
+   SELECT 
+     policy_name,
+     jsonb_array_elements_text(policy_config::jsonb->'loginControl'->'allowedIps') as ip_address
+   FROM equipment_policies
+   WHERE id = <policy_id>;
    ```
 
 3. Ensure clientIp is set:
@@ -1819,8 +1914,22 @@ Use this checklist to ensure comprehensive testing:
     "allowedProtocols": ["SSH", "RDP"]
   },
   "loginControl": {
-    "ipFilteringType": "allow_specified_ips",
-    "allowedIps": ["192.168.1.0/24"]
+    "ipFilteringType": "whitelist",
+    "allowedIps": ["192.168.1.0/24"],
+    "accountLockEnabled": false,
+    "maxFailureAttempts": 0,
+    "lockoutDurationMinutes": 0,
+    "twoFactorType": "none"
+  },
+  "customConditions": {
+    "deviceType": {
+      "operator": "equals",
+      "value": "LINUX_SERVER"
+    }
+  },
+  "customMetadata": {
+    "createdBy": "admin",
+    "department": "IT"
   },
   "roleIds": [1]
 }
@@ -1856,7 +1965,7 @@ GET    /api/equipment-policies/enabled
 POST   /api/equipment-access/check
 ```
 
-### Common Database Queries
+### Common Database Queries (JSONB Implementation)
 
 ```sql
 -- Find policies for a user
@@ -1869,17 +1978,46 @@ SELECT p.* FROM equipment_policies p
 JOIN policy_group_assignments pga ON p.id = pga.policy_id
 WHERE pga.group_id = 1 AND p.enabled = true;
 
--- Get all protocols for a policy
-SELECT protocol FROM policy_allowed_protocols
-WHERE policy_id = (SELECT id FROM policy_common_settings WHERE policy_id = 1);
+-- Get all protocols for a policy (from JSONB)
+SELECT 
+  policy_name,
+  jsonb_array_elements_text(policy_config::jsonb->'commonSettings'->'allowedProtocols') as protocol
+FROM equipment_policies
+WHERE id = 1;
 
--- Get time slots for a policy
-SELECT day_of_week, hour_start, hour_end FROM policy_time_slots
-WHERE policy_id = (SELECT id FROM policy_allowed_time WHERE policy_id = 1);
+-- Get time slots for a policy (from JSONB)
+SELECT 
+  policy_name,
+  jsonb_array_elements(policy_config::jsonb->'allowedTime'->'timeSlots')->>'dayOfWeek' as day_of_week,
+  jsonb_array_elements(policy_config::jsonb->'allowedTime'->'timeSlots')->>'hourStart' as hour_start,
+  jsonb_array_elements(policy_config::jsonb->'allowedTime'->'timeSlots')->>'hourEnd' as hour_end
+FROM equipment_policies
+WHERE id = 1;
+
+-- View full policy_config JSONB
+SELECT 
+  policy_name,
+  policy_config::jsonb
+FROM equipment_policies
+WHERE id = 1;
+
+-- Check customConditions and customMetadata
+SELECT 
+  policy_name,
+  policy_config::jsonb->'customConditions' as custom_conditions,
+  policy_config::jsonb->'customMetadata' as custom_metadata
+FROM equipment_policies
+WHERE policy_config::jsonb->'customConditions' IS NOT NULL;
 ```
 
 ---
 
-**Last Updated:** 2024-01-15
-**Version:** 2.0.0
+**Last Updated:** 2026-01-14
+**Version:** 2.1.0 (JSONB Implementation)
 **Author:** Testing Team
+
+**Implementation Notes:**
+- Equipment policies use JSONB `policy_config` field (no normalized tables)
+- Policy configuration is cached using Spring Cache with Caffeine (30-minute TTL)
+- Supports flexible `customConditions` and `customMetadata` for frontend customization
+- All policy settings consolidated into single JSONB column for better flexibility and performance
