@@ -88,6 +88,9 @@ public class EquipmentPolicyRuleGenerator {
                             .map(p -> "hasProtocol(\"" + p + "\")")
                             .collect(Collectors.joining(" || "));
                     conditions.append("            , (").append(protocolCheck).append(")\n");
+                } else {
+                    // No allowedProtocols configured → only match requests without protocol
+                    conditions.append("            , protocol == null\n");
                 }
 
                 @SuppressWarnings("unchecked")

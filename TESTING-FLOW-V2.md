@@ -619,9 +619,11 @@ DELETE http://localhost:8081/api/equipment-policies/1
 
 ## 🔗 Testing Policy Assignments
 
-### Test Case 1: Assign Policy to User
+**Important:** Policy assignments are now managed via separate RESTful endpoints. When creating a policy, you create it first, then assign it to users, groups, equipment, or roles using the assignment endpoints.
 
-**Request:**
+### Test Case 1: Create Policy (Without Assignments)
+
+**Step 1: Create Policy**
 ```bash
 POST http://localhost:8081/api/equipment-policies
 Content-Type: application/json
@@ -632,12 +634,65 @@ Content-Type: application/json
   "policyClassification": "common",
   "policyApplication": "apply",
   "enabled": true,
-  "priority": 100,
-  "userIds": [1]
+  "priority": 100
 }
 ```
 
 **Expected Response:** `201 Created`
+```json
+{
+  "id": 1,
+  "policyName": "User-Specific Policy",
+  ...
+}
+```
+
+**Note:** Save the `id` from the response for assignment operations.
+
+### Test Case 2: Assign Policy to User
+
+**Step 1: Create Policy First** (see Test Case 1)
+
+**Step 2: Assign to User(s)**
+```bash
+POST http://localhost:8081/api/equipment-policies/1/assignments/users
+Content-Type: application/json
+
+[1]
+```
+
+**Expected Response:** `200 OK`
+```json
+{
+  "message": "Users assigned successfully",
+  "count": 1
+}
+```
+
+**Alternative: Assign Multiple Users**
+```bash
+POST http://localhost:8081/api/equipment-policies/1/assignments/users
+Content-Type: application/json
+
+[1, 2, 3]
+```
+
+**Get Current User Assignments:**
+```bash
+GET http://localhost:8081/api/equipment-policies/1/assignments/users
+```
+
+**Expected Response:** `200 OK`
+```json
+[
+  {
+    "id": 1,
+    "username": "admin",
+    "email": "admin@example.com",
+    ...
+  }
+]
+```
 
 **Database Verification:**
 ```sql
@@ -645,28 +700,33 @@ SELECT u.username, p.policy_name
 FROM users u
 JOIN policy_user_assignments pua ON u.id = pua.user_id
 JOIN equipment_policies p ON pua.policy_id = p.id
-WHERE p.policy_name = 'User-Specific Policy';
+WHERE p.id = 1;
 ```
 
-### Test Case 2: Assign Policy to Group
+### Test Case 3: Assign Policy to Group
 
-**Request:**
+**Step 1: Create Policy** (if not already created)
+
+**Step 2: Assign to Group(s)**
 ```bash
-POST http://localhost:8081/api/equipment-policies
+POST http://localhost:8081/api/equipment-policies/1/assignments/groups
 Content-Type: application/json
 
+[1]
+```
+
+**Expected Response:** `200 OK`
+```json
 {
-  "policyName": "Group Policy",
-  "description": "Policy assigned to IT Team group",
-  "policyClassification": "common",
-  "policyApplication": "apply",
-  "enabled": true,
-  "priority": 100,
-  "groupIds": [1]
+  "message": "Groups assigned successfully",
+  "count": 1
 }
 ```
 
-**Expected Response:** `201 Created`
+**Get Current Group Assignments:**
+```bash
+GET http://localhost:8081/api/equipment-policies/1/assignments/groups
+```
 
 **Verification:**
 ```sql
@@ -674,28 +734,33 @@ SELECT g.group_name, p.policy_name
 FROM user_groups g
 JOIN policy_group_assignments pga ON g.id = pga.group_id
 JOIN equipment_policies p ON pga.policy_id = p.id
-WHERE p.policy_name = 'Group Policy';
+WHERE p.id = 1;
 ```
 
-### Test Case 3: Assign Policy to Equipment
+### Test Case 4: Assign Policy to Equipment
 
-**Request:**
+**Step 1: Create Policy** (if not already created)
+
+**Step 2: Assign to Equipment**
 ```bash
-POST http://localhost:8081/api/equipment-policies
+POST http://localhost:8081/api/equipment-policies/1/assignments/equipment
 Content-Type: application/json
 
+[1, 2]
+```
+
+**Expected Response:** `200 OK`
+```json
 {
-  "policyName": "Equipment-Specific Policy",
-  "description": "Policy for Production Server",
-  "policyClassification": "common",
-  "policyApplication": "apply",
-  "enabled": true,
-  "priority": 100,
-  "equipmentIds": [1]
+  "message": "Equipment assigned successfully",
+  "count": 2
 }
 ```
 
-**Expected Response:** `201 Created`
+**Get Current Equipment Assignments:**
+```bash
+GET http://localhost:8081/api/equipment-policies/1/assignments/equipment
+```
 
 **Verification:**
 ```sql
@@ -703,28 +768,33 @@ SELECT e.device_name, p.policy_name
 FROM equipment e
 JOIN policy_equipment_assignments pea ON e.id = pea.equipment_id
 JOIN equipment_policies p ON pea.policy_id = p.id
-WHERE p.policy_name = 'Equipment-Specific Policy';
+WHERE p.id = 1;
 ```
 
-### Test Case 4: Assign Policy to Role
+### Test Case 5: Assign Policy to Role
 
-**Request:**
+**Step 1: Create Policy** (if not already created)
+
+**Step 2: Assign to Role(s)**
 ```bash
-POST http://localhost:8081/api/equipment-policies
+POST http://localhost:8081/api/equipment-policies/1/assignments/roles
 Content-Type: application/json
 
+[1]
+```
+
+**Expected Response:** `200 OK`
+```json
 {
-  "policyName": "Role-Based Policy",
-  "description": "Policy for ADMIN role",
-  "policyClassification": "common",
-  "policyApplication": "apply",
-  "enabled": true,
-  "priority": 100,
-  "roleIds": [1]
+  "message": "Roles assigned successfully",
+  "count": 1
 }
 ```
 
-**Expected Response:** `201 Created`
+**Get Current Role Assignments:**
+```bash
+GET http://localhost:8081/api/equipment-policies/1/assignments/roles
+```
 
 **Verification:**
 ```sql
@@ -732,33 +802,102 @@ SELECT r.name as role_name, p.policy_name
 FROM roles r
 JOIN policy_role_assignments pra ON r.id = pra.role_id
 JOIN equipment_policies p ON pra.policy_id = p.id
-WHERE p.policy_name = 'Role-Based Policy';
+WHERE p.id = 1;
 ```
 
-### Test Case 5: Multiple Assignment Types
+### Test Case 6: Multiple Assignment Types
 
-**Request:**
+**Create a policy and assign it to multiple types:**
+
 ```bash
+# Step 1: Create policy
 POST http://localhost:8081/api/equipment-policies
-Content-Type: application/json
-
 {
   "policyName": "Multi-Assignment Policy",
   "description": "Assigned to user, group, equipment, and role",
   "policyClassification": "common",
   "policyApplication": "apply",
   "enabled": true,
-  "priority": 100,
-  "userIds": [1],
-  "groupIds": [1],
-  "equipmentIds": [1],
-  "roleIds": [1]
+  "priority": 100
+}
+
+# Step 2: Assign to user
+POST http://localhost:8081/api/equipment-policies/{id}/assignments/users
+[1]
+
+# Step 3: Assign to group
+POST http://localhost:8081/api/equipment-policies/{id}/assignments/groups
+[1]
+
+# Step 4: Assign to equipment
+POST http://localhost:8081/api/equipment-policies/{id}/assignments/equipment
+[1]
+
+# Step 5: Assign to role
+POST http://localhost:8081/api/equipment-policies/{id}/assignments/roles
+[1]
+```
+
+**Note:** Policy will apply if user matches ANY assignment type
+
+### Test Case 7: Replace All Assignments
+
+**Replace all user assignments:**
+```bash
+PUT http://localhost:8081/api/equipment-policies/1/assignments/users
+Content-Type: application/json
+
+[2, 3, 4]
+```
+
+**Expected Response:** `200 OK`
+```json
+{
+  "message": "User assignments replaced successfully",
+  "count": 3
 }
 ```
 
-**Expected Response:** `201 Created`
+**Note:** This removes all existing user assignments and replaces them with the new ones.
 
-**Note:** Policy will apply if user matches ANY assignment type
+### Test Case 8: Remove Assignments
+
+**Remove single user:**
+```bash
+DELETE http://localhost:8081/api/equipment-policies/1/assignments/users/1
+```
+
+**Expected Response:** `200 OK`
+```json
+{
+  "message": "User removed successfully",
+  "userId": "1"
+}
+```
+
+**Remove multiple users:**
+```bash
+DELETE http://localhost:8081/api/equipment-policies/1/assignments/users
+Content-Type: application/json
+
+[2, 3]
+```
+
+**Expected Response:** `200 OK`
+```json
+{
+  "message": "Users removed successfully",
+  "count": 2
+}
+```
+
+**Similar endpoints for groups, equipment, and roles:**
+- `DELETE /api/equipment-policies/{id}/assignments/groups/{groupId}`
+- `DELETE /api/equipment-policies/{id}/assignments/equipment/{equipmentId}`
+- `DELETE /api/equipment-policies/{id}/assignments/roles/{roleId}`
+- `DELETE /api/equipment-policies/{id}/assignments/groups` (bulk)
+- `DELETE /api/equipment-policies/{id}/assignments/equipment` (bulk)
+- `DELETE /api/equipment-policies/{id}/assignments/roles` (bulk)
 
 ---
 
@@ -1757,11 +1896,19 @@ Use this checklist to ensure comprehensive testing:
 - [ ] Get policy by ID
 
 ### Policy Assignments
-- [ ] Assign policy to user
-- [ ] Assign policy to group
-- [ ] Assign policy to equipment
-- [ ] Assign policy to role
-- [ ] Multiple assignment types
+- [ ] Create policy (without assignments)
+- [ ] Assign policy to user (POST /assignments/users)
+- [ ] Assign policy to group (POST /assignments/groups)
+- [ ] Assign policy to equipment (POST /assignments/equipment)
+- [ ] Assign policy to role (POST /assignments/roles)
+- [ ] Get user assignments (GET /assignments/users)
+- [ ] Get group assignments (GET /assignments/groups)
+- [ ] Get equipment assignments (GET /assignments/equipment)
+- [ ] Get role assignments (GET /assignments/roles)
+- [ ] Replace all user assignments (PUT /assignments/users)
+- [ ] Remove single user assignment (DELETE /assignments/users/{userId})
+- [ ] Remove multiple user assignments (DELETE /assignments/users)
+- [ ] Multiple assignment types (assign to all types)
 - [ ] Verify assignments in database
 
 ### Policy Settings
@@ -1866,6 +2013,7 @@ Use this checklist to ensure comprehensive testing:
 
 ```json
 // Policy 1: Basic SSH Access
+// Step 1: Create policy
 {
   "policyName": "Basic SSH Access",
   "policyClassification": "common",
@@ -1874,9 +2022,12 @@ Use this checklist to ensure comprehensive testing:
   "priority": 100,
   "commonSettings": {
     "allowedProtocols": ["SSH"]
-  },
-  "userIds": [1]
+  }
 }
+
+// Step 2: Assign to user (separate endpoint)
+// POST /api/equipment-policies/{id}/assignments/users
+[1]
 
 // Policy 2: Business Hours Only
 {
@@ -2013,7 +2164,7 @@ WHERE policy_config::jsonb->'customConditions' IS NOT NULL;
 ---
 
 **Last Updated:** 2026-01-14
-**Version:** 2.1.0 (JSONB Implementation)
+**Version:** 2.2.0 (RESTful Assignment Management)
 **Author:** Testing Team
 
 **Implementation Notes:**
@@ -2021,3 +2172,6 @@ WHERE policy_config::jsonb->'customConditions' IS NOT NULL;
 - Policy configuration is cached using Spring Cache with Caffeine (30-minute TTL)
 - Supports flexible `customConditions` and `customMetadata` for frontend customization
 - All policy settings consolidated into single JSONB column for better flexibility and performance
+- **NEW:** Policy assignments managed via separate RESTful endpoints for better separation of concerns
+- **NEW:** Assignment endpoints support GET, POST, PUT, DELETE operations for each assignment type
+- **NEW:** Create policy first, then assign separately using `/api/equipment-policies/{id}/assignments/*` endpoints

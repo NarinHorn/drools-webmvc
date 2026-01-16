@@ -80,8 +80,8 @@ public class EquipmentPolicyService {
         
         EquipmentPolicy saved = policyRepository.save(policy);
 
-        // Create assignments
-        createAssignments(saved, dto);
+        // Note: Assignments are now managed via separate endpoints
+        // /api/equipment-policies/{id}/assignments/*
 
         // Generate DRL
         String drl = ruleGenerator.generatePolicyRule(saved);
@@ -120,8 +120,8 @@ public class EquipmentPolicyService {
 
         EquipmentPolicy saved = policyRepository.save(existing);
 
-        // Update assignments
-        updateAssignments(saved, dto);
+        // Note: Assignments are now managed via separate endpoints
+        // /api/equipment-policies/{id}/assignments/*
 
         // Generate DRL
         String drl = ruleGenerator.generatePolicyRule(saved);
@@ -290,56 +290,6 @@ public class EquipmentPolicyService {
         return map;
     }
 
-    private void createAssignments(EquipmentPolicy policy, EquipmentPolicyDTO dto) {
-        // User assignments
-        if (dto.getUserIds() != null) {
-            dto.getUserIds().forEach(userId -> {
-                User user = userRepository.findById(userId)
-                        .orElseThrow(() -> new RuntimeException("User not found: " + userId));
-                PolicyUserAssignment assignment = new PolicyUserAssignment(policy, user);
-                policy.getUserAssignments().add(assignment);
-            });
-        }
-
-        // Group assignments
-        if (dto.getGroupIds() != null) {
-            dto.getGroupIds().forEach(groupId -> {
-                UserGroup group = groupRepository.findById(groupId)
-                        .orElseThrow(() -> new RuntimeException("Group not found: " + groupId));
-                PolicyGroupAssignment assignment = new PolicyGroupAssignment(policy, group);
-                policy.getGroupAssignments().add(assignment);
-            });
-        }
-
-        // Equipment assignments
-        if (dto.getEquipmentIds() != null) {
-            dto.getEquipmentIds().forEach(equipmentId -> {
-                Equipment equipment = equipmentRepository.findById(equipmentId)
-                        .orElseThrow(() -> new RuntimeException("Equipment not found: " + equipmentId));
-                PolicyEquipmentAssignment assignment = new PolicyEquipmentAssignment(policy, equipment);
-                policy.getEquipmentAssignments().add(assignment);
-            });
-        }
-
-        // Role assignments
-        if (dto.getRoleIds() != null) {
-            dto.getRoleIds().forEach(roleId -> {
-                Role role = roleRepository.findById(roleId)
-                        .orElseThrow(() -> new RuntimeException("Role not found: " + roleId));
-                PolicyRoleAssignment assignment = new PolicyRoleAssignment(policy, role);
-                policy.getRoleAssignments().add(assignment);
-            });
-        }
-    }
-
-    private void updateAssignments(EquipmentPolicy policy, EquipmentPolicyDTO dto) {
-        // Clear existing assignments
-        policy.getUserAssignments().clear();
-        policy.getGroupAssignments().clear();
-        policy.getEquipmentAssignments().clear();
-        policy.getRoleAssignments().clear();
-
-        // Create new assignments
-        createAssignments(policy, dto);
-    }
+    // Assignment management has been moved to EquipmentPolicyAssignmentService
+    // Use endpoints: /api/equipment-policies/{id}/assignments/*
 }

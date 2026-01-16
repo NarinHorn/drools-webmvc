@@ -102,6 +102,14 @@ public class PolicyFactLoader {
 
         request.setAssignedPolicyIds(policyIds);
 
+        // Debug logging for policy resolution
+        System.out.println("=== Policy Resolution Debug ===");
+        System.out.println("User: " + username + " (ID: " + user.getId() + ")");
+        System.out.println("User Roles: " + user.getRoleNames());
+        System.out.println("User Groups: " + user.getGroupNames());
+        System.out.println("Target Equipment ID: " + equipmentId);
+        System.out.println("Assigned Policy IDs: " + policyIds);
+
         // Load policy details for all assigned policies
         if (!policyIds.isEmpty()) {
             List<EquipmentPolicy> policies = policyRepository.findAllById(policyIds);
@@ -235,6 +243,14 @@ public class PolicyFactLoader {
             request.setAllowedTimeSlots(allTimeSlots);
             request.setAllowedIps(allAllowedIps);
             request.setIpFilteringType(ipFilteringType);
+
+            // Continue debug logging
+            System.out.println("Loaded Policies: " + policies.stream()
+                    .map(p -> p.getPolicyName() + "(ID:" + p.getId() + ", enabled:" + p.isEnabled() + ")")
+                    .collect(Collectors.joining(", ")));
+            System.out.println("Allowed Protocols: " + allProtocols);
+            System.out.println("Allowed DBMS: " + allDbms);
+            System.out.println("================================");
         }
 
         return request;

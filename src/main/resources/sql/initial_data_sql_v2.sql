@@ -1,3 +1,12 @@
+-- Get all time slots from JSONB policy_config
+SELECT
+    policy_name,
+    jsonb_array_elements(policy_config::jsonb->'allowedTime'->'timeSlots')->>'dayOfWeek' as day_of_week,
+    jsonb_array_elements(policy_config::jsonb->'allowedTime'->'timeSlots')->>'hourStart' as hour_start,
+    jsonb_array_elements(policy_config::jsonb->'allowedTime'->'timeSlots')->>'hourEnd' as hour_end
+FROM equipment_policies
+WHERE id = 6
+ORDER BY day_of_week, hour_start;
 -- ============================================
 -- Initial Data SQL Script V2 - JSONB Implementation
 -- ============================================
