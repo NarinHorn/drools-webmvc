@@ -99,13 +99,12 @@ public class EquipmentPolicyRuleGenerator {
                     String dbmsCheck = dbms.stream()
                             .map(d -> "hasDbmsType(\"" + d + "\")")
                             .collect(Collectors.joining(" || "));
-                    // Always add comma since isAssignedToPolicy is already on previous line
-                    if (conditions.length() > 0) {
-                        conditions.append("            , (").append(dbmsCheck).append(")\n");
-                    } else {
-                        conditions.append("            , (").append(dbmsCheck).append(")\n");
-                    }
+                    // dbmsType == null means request is not a DB request (e.g., SSH), so skip DBMS check
+                    conditions.append("            , (dbmsType == null || ").append(dbmsCheck).append(")\n");
                 }
+            } else {
+                // No commonSettings at all → only match requests without protocol
+                conditions.append("            , protocol == null\n");
             }
 
             // Generate from allowedTime
@@ -174,6 +173,9 @@ public class EquipmentPolicyRuleGenerator {
                     }
                 }
             }
+        } else {
+            // No policy config at all → only match requests without protocol
+            conditions.append("            , protocol == null\n");
         }
 
         drl.append(conditions);
@@ -187,6 +189,11 @@ public class EquipmentPolicyRuleGenerator {
         drl.append("        }\n");
         drl.append("        System.out.println(\"✓ Equipment access ALLOWED by policy: ").append(ruleName).append("\");\n");
         drl.append("end\n");
+
+        // Log generated DRL for debugging
+        System.out.println("=== Generated DRL for policy: " + policy.getPolicyName() + " (ID: " + policy.getId() + ") ===");
+        System.out.println(drl.toString());
+        System.out.println("=== End DRL ===\n");
 
         return drl.toString();
     }
