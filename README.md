@@ -1,6 +1,9 @@
-# ABAC Policy Management System with Drools - v2
+# RBAC/ABAC Policy Management System with Drools (Access & Equipment Policies)
 
-A comprehensive **Attribute-Based Access Control (ABAC)** system built with Spring Boot, Drools, and PostgreSQL. This system allows dynamic policy management where access control rules are stored in the database and evaluated in real-time using the Drools rule engine.
+A comprehensive **RBAC + ABAC** system built with Spring Boot, Drools, and PostgreSQL. The project supports two scopes:
+
+- **AccessPolicy** (API-level): controls who can call REST endpoints (RBAC + light ABAC)
+- **EquipmentPolicy** (device/session-level): controls SSH/RDP/DB access, commands, time windows, and richer ABAC conditions
 
 ---
 
@@ -23,20 +26,19 @@ A comprehensive **Attribute-Based Access Control (ABAC)** system built with Spri
 
 ## 🎯 Project Overview
 
-This project implements a flexible ABAC (Attribute-Based Access Control) system that:
+This project implements a flexible authorization system that:
 
-- **Dynamically manages access policies** stored in PostgreSQL database
-- **Evaluates access in real-time** using Drools rule engine
-- **Supports complex conditions** based on user attributes (roles, department, level, custom attributes)
-- **Hot-reloads rules** when policies are created, updated, or deleted
-- **Provides RESTful API** for policy management and access control
+- **Dynamically manages policies** stored in PostgreSQL (AccessPolicy + EquipmentPolicy)
+- **Evaluates in real-time** using Drools with hot-reload on policy changes
+- **Supports RBAC** (roles, groups, assignments) and **ABAC** (attributes, device scope, time, commands)
+- **Provides REST APIs** for policy CRUD, assignments, and access checks
 
 ### Key Features
 
-- ✅ Dynamic policy creation via REST API
-- ✅ Policy-to-DRL (Drools Rule Language) automatic conversion
-- ✅ Role-based and attribute-based access control
-- ✅ Request interception and automatic access evaluation
+- ✅ Two policy types: **AccessPolicy** (API) and **EquipmentPolicy** (devices/sessions/commands)
+- ✅ Policy-to-DRL generation for both policy types
+- ✅ Assignments by user, group, role, equipment (EquipmentPolicy supports all four)
+- ✅ Request interception and Drools-based evaluation (default deny)
 - ✅ Swagger UI for API testing
 - ✅ PostgreSQL persistence with JPA
 - ✅ Gradle build system
@@ -59,7 +61,7 @@ This project implements a flexible ABAC (Attribute-Based Access Control) system 
 
 ## 🏗 Architecture & Flow
 
-### System Architecture
+### System Architecture (Current)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -67,48 +69,39 @@ This project implements a flexible ABAC (Attribute-Based Access Control) system 
 │                    (Postman, Swagger UI, Frontend)                      │
 └──────────────────────────────┬──────────────────────────────────────────┘
                                │ HTTP Request
-                               │ Header: X-Username
+                               │ Header: X-Username (demo)
                                ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                    AccessControlInterceptor                             │
-│  • Intercepts all /api/** requests                                     │
-│  • Extracts username from X-Username header                             │
+│  • Intercepts /api/**                                                   │
+│  • Extracts username                                                    │
 │  • Builds AccessRequest with user context                               │
 └──────────────────────────────┬──────────────────────────────────────────┘
                                │
                                ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                    AccessControlService                                 │
-│  • Loads user from database                                             │
-│  • Builds AccessRequest (roles, department, level, attributes)          │
-│  • Evaluates access via Drools                                          │
+│  • Loads user + attributes                                              │
+│  • Evaluates Drools via DynamicRuleService                              │
+│  • Decides ALLOW/DENY                                                   │
 └──────────────────────────────┬──────────────────────────────────────────┘
                                │
                                ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                    DynamicRuleService                                    │
-│  • Manages KieContainer (Drools container)                             │
-│  • Loads static rules from classpath                                    │
-│  • Loads dynamic policies from PostgreSQL                               │
-│  • Hot-reloads when policies change                                     │
-│  • Creates KieSession for rule evaluation                                │
+│                    DynamicRuleService                                   │
+│  • Loads static rules                                                   │
+│  • Loads AccessPolicy DRL (API-level)                                   │
+│  • Loads EquipmentPolicy DRL (device-level)                             │
+│  • Hot-reloads on policy changes                                        │
 └──────────────────────────────┬──────────────────────────────────────────┘
                                │
                                ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                         PostgreSQL Database                              │
-│  ┌──────────┐  ┌──────────┐  ┌──────────────────────────────────────┐   │
-│  │  users   │  │  roles   │  │      access_policies                 │   │
-│  │          │  │          │  │  • policy_name                       │   │
-│  │  • id    │  │  • id    │  │  • endpoint, http_method            │   │
-│  │  • username│  • name  │  │  • allowed_roles (JSON)             │   │
-│  │  • email │  │  • desc  │  │  • conditions (JSON)                │   │
-│  │  • dept  │  │          │  │  • generated_drl (TEXT)             │   │
-│  │  • level │  └──────────┘  │  • priority, enabled                │   │
-│  │  • roles │                 └──────────────────────────────────────┘   │
-│  └──────────┘                                                              │
-│       │                                                                    │
-│       └─── user_roles (Many-to-Many)                                      │
+│  • users, roles, groups, equipments                                      │
+│  • access_policies (endpoint/httpMethod/conditions)                      │
+│  • equipment_policies (JSONB policy_config + assignments)                │
+│  • policy_*_assignments (user/group/equipment/role)                      │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -149,35 +142,33 @@ This project implements a flexible ABAC (Attribute-Based Access Control) system 
 13. Allow (200) or Deny (403) response
 ```
 
-### Policy Evaluation Flow
+### Policy Evaluation Flow (two channels)
 
 ```
-Policy in Database
+AccessPolicy (API)
    ↓
-PolicyService.generateDrl() converts to DRL
-   ↓
-Stored in access_policies.generated_drl
+PolicyService.generateDrl() → access_policies.generated_drl
    ↓
 DynamicRuleService.loadDynamicRulesFromDatabase()
    ↓
-Combines all enabled policies into one DRL file
+Combined DRL for endpoint rules
+
+EquipmentPolicy (device/session)
    ↓
-Builds KieContainer (compiles rules)
+EquipmentPolicyRuleGenerator.generatePolicyRule() → equipment_policies.generated_rule_drl
    ↓
-On request: Creates KieSession
+DynamicRuleService.loadEquipmentPoliciesFromDatabase()
    ↓
-Inserts AccessRequest fact
+Combined DRL for equipment rules
+
+Request evaluation
    ↓
-Drools pattern matching:
-   - endpointMatches(pattern)
-   - httpMethod == "GET"
-   - hasRole("ADMIN")
-   - department == "SALES"
-   - userLevel >= 5
+AccessRequest + AccessResult inserted into KieSession
    ↓
-If all conditions match → Rule fires
+Drools applies AccessPolicy rules (endpoint/httpMethod/roles/groups/conditions)
+        and EquipmentPolicy rules (time windows, protocols, command lists, assignments)
    ↓
-AccessResult.allow() or deny()
+Decision: ALLOW/DENY (default deny if nothing matches)
 ```
 
 ---
@@ -311,9 +302,9 @@ If you want to use the Java initializer (for development only):
 
 ### Initial Data Includes
 
-- **4 Roles**: ADMIN, MANAGER, USER, VIEWER
-- **5 Users**: admin, manager, john, jane, viewer
-- **6 Access Policies**: Pre-configured policies for testing
+- **Roles & Users**: ADMIN, MANAGER, USER, VIEWER; admin/manager/john/jane/viewer
+- **Access Policies**: Sample API policies for demo
+- **Equipment Policies**: Sample device/session policies (via `initial_data_sql_v2.sql`)
 
 ### Sample Users
 
@@ -453,7 +444,27 @@ Access interactive API documentation at:
 | PUT | `/api/roles/{id}` | Update role | Yes |
 | DELETE | `/api/roles/{id}` | Delete role | Yes |
 
-#### 4. Access Control (`/api/access`)
+#### 4. Equipment Policy Management (`/api/equipment-policies`)
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|----------------|
+| GET | `/api/equipment-policies` | List equipment policies | Yes |
+| GET | `/api/equipment-policies/{id}` | Get by ID | Yes |
+| POST | `/api/equipment-policies` | Create | Yes (ADMIN) |
+| PUT | `/api/equipment-policies/{id}` | Update | Yes (ADMIN) |
+| PATCH | `/api/equipment-policies/{id}/toggle` | Enable/disable | Yes (ADMIN) |
+| DELETE | `/api/equipment-policies/{id}` | Delete | Yes (ADMIN) |
+
+Assignments (managed separately):
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/equipment-policies/{id}/assignments/users/{userId}` | Assign to user |
+| DELETE | `/api/equipment-policies/{id}/assignments/users/{userId}` | Unassign user |
+| POST | `/api/equipment-policies/{id}/assignments/groups/{groupId}` | Assign to group |
+| POST | `/api/equipment-policies/{id}/assignments/equipments/{equipmentId}` | Assign to equipment |
+| POST | `/api/equipment-policies/{id}/assignments/roles/{roleId}` | Assign to role |
+
+#### 5. Access Control (`/api/access`)
 
 | Method | Endpoint | Description | Auth Required |
 |--------|----------|-------------|----------------|
@@ -464,7 +475,7 @@ Access interactive API documentation at:
 - `endpoint`: Endpoint path (e.g., `/api/reports`)
 - `method`: HTTP method (GET, POST, etc.)
 
-#### 5. Sample Protected Endpoints (`/api/*`)
+#### 6. Sample Protected Endpoints (`/api/*`)
 
 These endpoints are protected by the interceptor:
 
