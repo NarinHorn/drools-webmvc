@@ -83,13 +83,20 @@ public class PolicyFactLoader {
         // Policies assigned to user
         List<EquipmentPolicy> userPolicies = policyRepository.findAssignedToUser(user.getId());
         userPolicies.forEach(p -> policyIds.add(p.getId()));
-        System.out.println("user policies: " + userPolicies);
+        System.out.println("Policies assigned to user: " + userPolicies);
 
         // Policies assigned to user's groups
         user.getGroups().forEach(group -> {
             List<EquipmentPolicy> groupPolicies = policyRepository.findAssignedToGroup(group.getId());
             groupPolicies.forEach(p -> policyIds.add(p.getId()));
-            System.out.println("user's group policies: " + groupPolicies);
+            System.out.println("Policies assigned to user's groups: " + groupPolicies);
+        });
+
+        // Policies assigned to user's roles
+        user.getRoles().forEach(role -> {
+            List<EquipmentPolicy> rolePolicies = policyRepository.findAssignedToRole(role.getId());
+            System.out.println("Policies assigned to user's roles: " + rolePolicies);
+            rolePolicies.forEach(p -> policyIds.add(p.getId()));
         });
 
         // Policies from PolicyGroups assigned to user
@@ -97,12 +104,12 @@ public class PolicyFactLoader {
         userPolicyGroups.forEach(pg -> {
             pg.getPolicyMembers().forEach(member -> policyIds.add(member.getPolicy().getId()));
         });
-        System.out.println("user policy groups: " + userPolicyGroups);
+        System.out.println("Policies from PolicyGroups assigned to user: " + userPolicyGroups);
 
         // Policies from PolicyGroups assigned to user's groups
         user.getGroups().forEach(group -> {
             List<PolicyGroup> groupPolicyGroups = policyGroupRepository.findAssignedToUserGroup(group.getId());
-            System.out.println("user's group policy groups: " + groupPolicyGroups);
+            System.out.println("Policies from PolicyGroups assigned to user's groups: " + groupPolicyGroups);
             groupPolicyGroups.forEach(pg -> {
                 pg.getPolicyMembers().forEach(member -> policyIds.add(member.getPolicy().getId()));
             });
@@ -111,24 +118,17 @@ public class PolicyFactLoader {
         // Policies from PolicyGroups assigned to user's roles
         user.getRoles().forEach(role -> {
             List<PolicyGroup> rolePolicyGroups = policyGroupRepository.findAssignedToRole(role.getId());
-            System.out.println("user's role policy groups: " + rolePolicyGroups);
+            System.out.println("Policies from PolicyGroups assigned to user's roles: " + rolePolicyGroups);
             rolePolicyGroups.forEach(pg -> {
                 pg.getPolicyMembers().forEach(member -> policyIds.add(member.getPolicy().getId()));
             });
-        });
-
-        // Policies assigned to user's roles
-        user.getRoles().forEach(role -> {
-            List<EquipmentPolicy> rolePolicies = policyRepository.findAssignedToRole(role.getId());
-            System.out.println("user's role policies: " + rolePolicies);
-            rolePolicies.forEach(p -> policyIds.add(p.getId()));
         });
 
         // Only include equipment-assigned policies if user has at least one user/group/role assignment
         // This prevents unassigned users from accessing equipment via equipment-only policies
         if (!policyIds.isEmpty() && equipmentId != null) {
             List<EquipmentPolicy> equipmentPolicies = policyRepository.findAssignedToEquipment(equipmentId);
-            System.out.println("equipment policies: " + equipmentPolicies);
+            System.out.println("policies assigned to equipment: " + equipmentPolicies);
             equipmentPolicies.forEach(p -> policyIds.add(p.getId()));
         }
 
