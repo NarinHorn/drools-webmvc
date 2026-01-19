@@ -37,6 +37,10 @@ public class EquipmentPolicyDTO {
     private PolicyLoginControlDTO loginControl;
     private List<Map<String, Object>> policies;
 
+    // Raw policyConfig - allows sending config directly as JSON object
+    // If provided, this takes precedence over individual settings (commonSettings, allowedTime, etc.)
+    private Map<String, Object> policyConfig;
+
     // NEW: Custom conditions (like AccessPolicy) - flexible fields from frontend
     private Map<String, ConditionDTO> customConditions;
     
@@ -144,6 +148,14 @@ public class EquipmentPolicyDTO {
 
     public void setLoginControl(PolicyLoginControlDTO loginControl) {
         this.loginControl = loginControl;
+    }
+
+    public Map<String, Object> getPolicyConfig() {
+        return policyConfig;
+    }
+
+    public void setPolicyConfig(Map<String, Object> policyConfig) {
+        this.policyConfig = policyConfig;
     }
 
     public Set<Long> getUserIds() {

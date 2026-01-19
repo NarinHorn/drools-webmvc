@@ -23,6 +23,7 @@ public class PolicyFactLoader {
     private final EquipmentRepository equipmentRepository;
     private final CommandListRepository commandListRepository;
     private final PolicyConfigCache policyConfigCache;
+    private final PolicyGroupRepository policyGroupRepository;
 
     @Autowired
     public PolicyFactLoader(
@@ -30,12 +31,14 @@ public class PolicyFactLoader {
             UserRepository userRepository,
             EquipmentRepository equipmentRepository,
             CommandListRepository commandListRepository,
-            PolicyConfigCache policyConfigCache) {
+            PolicyConfigCache policyConfigCache,
+            PolicyGroupRepository policyGroupRepository) {
         this.policyRepository = policyRepository;
         this.userRepository = userRepository;
         this.equipmentRepository = equipmentRepository;
         this.commandListRepository = commandListRepository;
         this.policyConfigCache = policyConfigCache;
+        this.policyGroupRepository = policyGroupRepository;
     }
 
     /**
@@ -74,22 +77,50 @@ public class PolicyFactLoader {
             }
         }
 
-        // Find all policies assigned to user, groups, equipment, or roles
+        // Find all policies and policy groups assigned to user, groups, equipment, or roles
         Set<Long> policyIds = new HashSet<>();
 
         // Policies assigned to user
         List<EquipmentPolicy> userPolicies = policyRepository.findAssignedToUser(user.getId());
         userPolicies.forEach(p -> policyIds.add(p.getId()));
+        System.out.println("user policies: " + userPolicies);
 
         // Policies assigned to user's groups
         user.getGroups().forEach(group -> {
             List<EquipmentPolicy> groupPolicies = policyRepository.findAssignedToGroup(group.getId());
             groupPolicies.forEach(p -> policyIds.add(p.getId()));
+            System.out.println("user's group policies: " + groupPolicies);
+        });
+
+        // Policies from PolicyGroups assigned to user
+        List<PolicyGroup> userPolicyGroups = policyGroupRepository.findAssignedToUser(user.getId());
+        userPolicyGroups.forEach(pg -> {
+            pg.getPolicyMembers().forEach(member -> policyIds.add(member.getPolicy().getId()));
+        });
+        System.out.println("user policy groups: " + userPolicyGroups);
+
+        // Policies from PolicyGroups assigned to user's groups
+        user.getGroups().forEach(group -> {
+            List<PolicyGroup> groupPolicyGroups = policyGroupRepository.findAssignedToUserGroup(group.getId());
+            System.out.println("user's group policy groups: " + groupPolicyGroups);
+            groupPolicyGroups.forEach(pg -> {
+                pg.getPolicyMembers().forEach(member -> policyIds.add(member.getPolicy().getId()));
+            });
+        });
+
+        // Policies from PolicyGroups assigned to user's roles
+        user.getRoles().forEach(role -> {
+            List<PolicyGroup> rolePolicyGroups = policyGroupRepository.findAssignedToRole(role.getId());
+            System.out.println("user's role policy groups: " + rolePolicyGroups);
+            rolePolicyGroups.forEach(pg -> {
+                pg.getPolicyMembers().forEach(member -> policyIds.add(member.getPolicy().getId()));
+            });
         });
 
         // Policies assigned to user's roles
         user.getRoles().forEach(role -> {
             List<EquipmentPolicy> rolePolicies = policyRepository.findAssignedToRole(role.getId());
+            System.out.println("user's role policies: " + rolePolicies);
             rolePolicies.forEach(p -> policyIds.add(p.getId()));
         });
 
@@ -97,18 +128,19 @@ public class PolicyFactLoader {
         // This prevents unassigned users from accessing equipment via equipment-only policies
         if (!policyIds.isEmpty() && equipmentId != null) {
             List<EquipmentPolicy> equipmentPolicies = policyRepository.findAssignedToEquipment(equipmentId);
+            System.out.println("equipment policies: " + equipmentPolicies);
             equipmentPolicies.forEach(p -> policyIds.add(p.getId()));
         }
 
         request.setAssignedPolicyIds(policyIds);
 
         // Debug logging for policy resolution
-        System.out.println("=== Policy Resolution Debug ===");
+        System.out.println("\n=== Policy Resolution Debug ===");
         System.out.println("User: " + username + " (ID: " + user.getId() + ")");
         System.out.println("User Roles: " + user.getRoleNames());
         System.out.println("User Groups: " + user.getGroupNames());
         System.out.println("Target Equipment ID: " + equipmentId);
-        System.out.println("Assigned Policy IDs: " + policyIds);
+        System.out.println("All Assigned Policy IDs: " + policyIds);
 
         // Load policy details for all assigned policies
         if (!policyIds.isEmpty()) {

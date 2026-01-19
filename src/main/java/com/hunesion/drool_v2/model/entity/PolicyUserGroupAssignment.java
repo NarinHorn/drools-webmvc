@@ -4,8 +4,8 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 
 @Entity
-@Table(name = "policy_group_assignments")
-public class PolicyGroupAssignment {
+@Table(name = "policy_user_group_assignments")
+public class PolicyUserGroupAssignment {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -20,10 +20,10 @@ public class PolicyGroupAssignment {
     @JoinColumn(name = "group_id", nullable = false)
     private UserGroup group;
 
-    public PolicyGroupAssignment() {
+    public PolicyUserGroupAssignment() {
     }
 
-    public PolicyGroupAssignment(EquipmentPolicy policy, UserGroup group) {
+    public PolicyUserGroupAssignment(EquipmentPolicy policy, UserGroup group) {
         this.policy = policy;
         this.group = group;
     }

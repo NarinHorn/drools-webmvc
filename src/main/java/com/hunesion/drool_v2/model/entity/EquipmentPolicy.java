@@ -55,10 +55,6 @@ public class EquipmentPolicy {
     @Column(columnDefinition = "JSONB", name = "policy_config")
     private String policyConfig;
 
-    // Generated DRL
-    @Column(columnDefinition = "TEXT", name = "generated_rule_drl")
-    private String generatedRuleDrl;
-
     @Column(nullable = false)
     private boolean enabled = true;
 
@@ -85,7 +81,7 @@ public class EquipmentPolicy {
     private Set<PolicyUserAssignment> userAssignments = new HashSet<>();
 
     @OneToMany(mappedBy = "policy", cascade = CascadeType.ALL, orphanRemoval = true)
-    private Set<PolicyGroupAssignment> groupAssignments = new HashSet<>();
+    private Set<PolicyUserGroupAssignment> groupAssignments = new HashSet<>();
 
     @OneToMany(mappedBy = "policy", cascade = CascadeType.ALL, orphanRemoval = true)
     private Set<PolicyEquipmentAssignment> equipmentAssignments = new HashSet<>();
@@ -181,14 +177,6 @@ public class EquipmentPolicy {
         this.policyConfig = policyConfig;
     }
 
-    public String getGeneratedRuleDrl() {
-        return generatedRuleDrl;
-    }
-
-    public void setGeneratedRuleDrl(String generatedRuleDrl) {
-        this.generatedRuleDrl = generatedRuleDrl;
-    }
-
     public Integer getVersionNo() {
         return versionNo;
     }
@@ -237,11 +225,11 @@ public class EquipmentPolicy {
         this.userAssignments = userAssignments;
     }
 
-    public Set<PolicyGroupAssignment> getGroupAssignments() {
+    public Set<PolicyUserGroupAssignment> getGroupAssignments() {
         return groupAssignments;
     }
 
-    public void setGroupAssignments(Set<PolicyGroupAssignment> groupAssignments) {
+    public void setGroupAssignments(Set<PolicyUserGroupAssignment> groupAssignments) {
         this.groupAssignments = groupAssignments;
     }
 
@@ -275,5 +263,16 @@ public class EquipmentPolicy {
         } catch (JsonProcessingException e) {
             throw new RuntimeException("Failed to parse policy config for policy: " + id, e);
         }
+    }
+
+    @Override
+    public String toString() {
+        return String.format(
+                "%nPolicy{%n  id=%d%n  policyName='%s'%n  enabled=%s%n  priority=%d%n}",
+                id,
+                policyName,
+                enabled,
+                priority
+        );
     }
 }

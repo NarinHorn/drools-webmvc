@@ -110,7 +110,7 @@ public class EquipmentPolicyAssignmentService {
     public List<UserGroup> getGroupAssignments(Long policyId) {
         EquipmentPolicy policy = getPolicyOrThrow(policyId);
         return policy.getGroupAssignments().stream()
-                .map(PolicyGroupAssignment::getGroup)
+                .map(PolicyUserGroupAssignment::getGroup)
                 .collect(Collectors.toList());
     }
 
@@ -126,7 +126,7 @@ public class EquipmentPolicyAssignmentService {
                     .anyMatch(a -> a.getGroup().getId().equals(groupId));
             
             if (!exists) {
-                PolicyGroupAssignment assignment = new PolicyGroupAssignment(policy, group);
+                PolicyUserGroupAssignment assignment = new PolicyUserGroupAssignment(policy, group);
                 policy.getGroupAssignments().add(assignment);
             }
         });
@@ -161,7 +161,7 @@ public class EquipmentPolicyAssignmentService {
         groupIds.forEach(groupId -> {
             UserGroup group = groupRepository.findById(groupId)
                     .orElseThrow(() -> new RuntimeException("Group not found: " + groupId));
-            PolicyGroupAssignment assignment = new PolicyGroupAssignment(policy, group);
+            PolicyUserGroupAssignment assignment = new PolicyUserGroupAssignment(policy, group);
             policy.getGroupAssignments().add(assignment);
         });
         

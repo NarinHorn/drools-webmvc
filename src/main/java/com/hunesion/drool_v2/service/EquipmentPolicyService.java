@@ -24,7 +24,6 @@ public class EquipmentPolicyService {
     private final EquipmentRepository equipmentRepository;
     private final RoleRepository roleRepository;
     private final CommandListRepository commandListRepository;
-    private final EquipmentPolicyRuleGenerator ruleGenerator;
     private final DynamicRuleService dynamicRuleService;
     private final ObjectMapper objectMapper;
     private final PolicyConfigCache policyConfigCache;
@@ -37,7 +36,6 @@ public class EquipmentPolicyService {
             EquipmentRepository equipmentRepository,
             RoleRepository roleRepository,
             CommandListRepository commandListRepository,
-            EquipmentPolicyRuleGenerator ruleGenerator,
             DynamicRuleService dynamicRuleService,
             ObjectMapper objectMapper,
             PolicyConfigCache policyConfigCache) {
@@ -47,7 +45,6 @@ public class EquipmentPolicyService {
         this.equipmentRepository = equipmentRepository;
         this.roleRepository = roleRepository;
         this.commandListRepository = commandListRepository;
-        this.ruleGenerator = ruleGenerator;
         this.dynamicRuleService = dynamicRuleService;
         this.objectMapper = objectMapper;
         this.policyConfigCache = policyConfigCache;
@@ -83,11 +80,6 @@ public class EquipmentPolicyService {
         // Note: Assignments are now managed via separate endpoints
         // /api/equipment-policies/{id}/assignments/*
 
-        // Generate DRL
-        String drl = ruleGenerator.generatePolicyRule(saved);
-        saved.setGeneratedRuleDrl(drl);
-        saved = policyRepository.save(saved);
-
         // Rebuild Drools rules
         dynamicRuleService.rebuildRules();
 
@@ -122,11 +114,6 @@ public class EquipmentPolicyService {
 
         // Note: Assignments are now managed via separate endpoints
         // /api/equipment-policies/{id}/assignments/*
-
-        // Generate DRL
-        String drl = ruleGenerator.generatePolicyRule(saved);
-        saved.setGeneratedRuleDrl(drl);
-        saved = policyRepository.save(saved);
 
         // Evict cache for this policy
         policyConfigCache.evictPolicyConfig(id);
@@ -183,9 +170,21 @@ public class EquipmentPolicyService {
     }
 
     /**
-     * Build policy_config JSON from DTO
+     * Build policy_config JSON from DTO.
+     * If dto.getPolicyConfig() is provided, use it directly.
+     * Otherwise, build from individual DTO fields.
      */
     private String buildPolicyConfigJson(EquipmentPolicyDTO dto) {
+        // If raw policyConfig is provided, use it directly (takes precedence)
+        if (dto.getPolicyConfig() != null && !dto.getPolicyConfig().isEmpty()) {
+            try {
+                return objectMapper.writeValueAsString(dto.getPolicyConfig());
+            } catch (JsonProcessingException e) {
+                throw new RuntimeException("Failed to serialize raw policy config", e);
+            }
+        }
+
+        // Otherwise, build from individual DTO fields
         Map<String, Object> policyConfig = new HashMap<>();
 
         // Convert commonSettings
