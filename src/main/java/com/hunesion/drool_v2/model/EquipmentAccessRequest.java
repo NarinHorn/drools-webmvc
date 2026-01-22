@@ -74,6 +74,8 @@ public class EquipmentAccessRequest {
 
     public EquipmentAccessRequest() {
         this.requestTime = LocalDateTime.now();
+        this.currentHour = this.requestTime.getHour();
+        this.currentDayOfWeek = this.requestTime.getDayOfWeek().getValue();
     }
 
     // Helper methods for Drools (makes rules simpler)
@@ -107,7 +109,7 @@ public class EquipmentAccessRequest {
 
     public boolean isWithinAllowedTime() {
         if (allowedTimeSlots == null || allowedTimeSlots.isEmpty()) {
-            return true; // No time restrictions
+            return false; // No timeSlots defined = deny access
         }
         if (currentDayOfWeek == null || currentHour == null) {
             return false;

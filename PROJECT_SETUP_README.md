@@ -2948,6 +2948,1317 @@ This guide has walked you through creating a complete ABAC (Attribute-Based Acce
 - ✅ Swagger UI for API documentation
 - ✅ Docker support for easy deployment
 
-**Project Setup Complete!** 🎉
+**Basic Project Setup Complete!** 🎉
 
-You should now have a fully functional ABAC system with Drools integration. For detailed API usage and examples, refer to the main `README.md` file.
+You now have the foundation. Continue to **Part 2** below for the complete current implementation.
+
+---
+
+# Part 2: Current Implementation - Equipment Policy with PolicyGroup, TimeSlots & Cache
+
+This section covers the enhanced implementation with:
+- **EquipmentPolicy** with JSONB `policyConfig` (single source of truth)
+- **PolicyGroup** for bundling multiple policies together
+- **TimeSlots** for time-based access control
+- **Cache** implementation for performance
+- **Flyway** database migrations
+
+---
+
+## Step 18: Update build.gradle with Cache & Flyway
+
+Update your `build.gradle` to include cache and Flyway dependencies:
+
+```gradle
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '4.0.1'
+    id 'io.spring.dependency-management' version '1.1.6'
+}
+
+group = 'com.hunesion'
+version = '0.0.1-SNAPSHOT'
+sourceCompatibility = '21'
+
+configurations {
+    compileOnly {
+        extendsFrom annotationProcessor
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+ext {
+    droolsVersion = '8.44.0.Final'
+}
+
+dependencies {
+    // Spring Boot Starters
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-cache'
+    
+    // Caffeine cache (high-performance caching)
+    implementation 'com.github.ben-manes.caffeine:caffeine'
+    
+    // Flyway for database migrations
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-database-postgresql'
+    
+    // Drools Dependencies
+    implementation "org.drools:drools-core:${droolsVersion}"
+    implementation "org.drools:drools-compiler:${droolsVersion}"
+    implementation "org.drools:drools-mvel:${droolsVersion}"
+    
+    // PostgreSQL Database
+    runtimeOnly 'org.postgresql:postgresql'
+    
+    // Jackson for JSON processing
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
+    
+    // Swagger / OpenAPI for API documentation
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.7.0'
+    
+    // Lombok for reducing boilerplate
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+    
+    // Test dependencies
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+```
+
+---
+
+## Step 19: Update application.yml with Cache Configuration
+
+Update `src/main/resources/application.yml`:
+
+```yaml
+spring:
+  application:
+    name: drool_v2
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/abacdb
+    username: postgres
+    password: your_password
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+
+  cache:
+    type: caffeine
+    caffeine:
+      spec: maximumSize=500,expireAfterWrite=300s
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+server:
+  port: 8081
+```
+
+### Cache Configuration Explained:
+- `maximumSize=500`: Max 500 policy configs cached (prevents memory overflow)
+- `expireAfterWrite=300s`: Cache expires 5 minutes after write (safety net for stale data)
+
+---
+
+## Step 20: Create Policy Entity with JSONB Config
+
+### 20.1 Create `Policy.java` (Base Interface)
+
+Create `src/main/java/com/hunesion/drool_v2/model/entity/Policy.java`:
+
+```java
+package com.hunesion.drool_v2.model.entity;
+
+/**
+ * Base interface for policy entities
+ */
+public interface Policy {
+    Long getId();
+    String getPolicyName();
+    String getPolicyConfig();
+    String getPolicyApplication();
+    Integer getPriority();
+    boolean isEnabled();
+}
+```
+
+### 20.2 Create `EquipmentPolicy.java`
+
+Create `src/main/java/com/hunesion/drool_v2/model/entity/EquipmentPolicy.java`:
+
+```java
+package com.hunesion.drool_v2.model.entity;
+
+import com.fasterxml.jackson.annotation.JsonPropertyOrder;
+import com.fasterxml.jackson.annotation.JsonRawValue;
+import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
+import java.time.LocalDateTime;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.UUID;
+
+@Entity
+@Table(name = "equipment_policies")
+@JsonPropertyOrder({
+        "id", "policyName", "description", "policyClassification",
+        "policyApplication", "enabled", "priority", "createdAt", "updatedAt"
+})
+public class EquipmentPolicy implements Policy {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "policy_name", nullable = false, unique = true)
+    private String policyName;
+
+    @Column(columnDefinition = "TEXT")
+    private String description;
+
+    @Column(name = "policy_classification", nullable = false)
+    private String policyClassification; // 'common', 'temporary', 'basic'
+
+    @Column(name = "policy_application", nullable = false)
+    private String policyApplication; // 'apply', 'not_applicable'
+
+    // JSONB field for all policy configuration (single source of truth)
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "JSONB", name = "policy_config")
+    private String policyConfig;
+
+    @Column(nullable = false)
+    private boolean enabled = true;
+
+    @Column(nullable = false)
+    private Integer priority = 0;
+
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    @Column(name = "updated_at", nullable = false)
+    private LocalDateTime updatedAt;
+
+    @OneToMany(mappedBy = "policy", cascade = CascadeType.ALL, orphanRemoval = true)
+    private Set<PolicyUserAssignment> userAssignments = new HashSet<>();
+
+    @OneToMany(mappedBy = "policy", cascade = CascadeType.ALL, orphanRemoval = true)
+    private Set<PolicyUserGroupAssignment> groupAssignments = new HashSet<>();
+
+    @OneToMany(mappedBy = "policy", cascade = CascadeType.ALL, orphanRemoval = true)
+    private Set<PolicyRoleAssignment> roleAssignments = new HashSet<>();
+
+    @OneToMany(mappedBy = "policy", cascade = CascadeType.ALL, orphanRemoval = true)
+    private Set<PolicyEquipmentAssignment> equipmentAssignments = new HashSet<>();
+
+    @PrePersist
+    protected void onCreate() {
+        createdAt = LocalDateTime.now();
+        updatedAt = LocalDateTime.now();
+    }
+
+    @PreUpdate
+    protected void onUpdate() {
+        updatedAt = LocalDateTime.now();
+    }
+
+    // Getters and Setters
+    @Override
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+
+    @Override
+    public String getPolicyName() { return policyName; }
+    public void setPolicyName(String policyName) { this.policyName = policyName; }
+
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
+
+    public String getPolicyClassification() { return policyClassification; }
+    public void setPolicyClassification(String policyClassification) { this.policyClassification = policyClassification; }
+
+    @Override
+    public String getPolicyApplication() { return policyApplication; }
+    public void setPolicyApplication(String policyApplication) { this.policyApplication = policyApplication; }
+
+    @Override
+    @JsonRawValue
+    public String getPolicyConfig() { return policyConfig; }
+    public void setPolicyConfig(String policyConfig) { this.policyConfig = policyConfig; }
+
+    @Override
+    public boolean isEnabled() { return enabled; }
+    public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+    @Override
+    public Integer getPriority() { return priority; }
+    public void setPriority(Integer priority) { this.priority = priority; }
+
+    public LocalDateTime getCreatedAt() { return createdAt; }
+    public LocalDateTime getUpdatedAt() { return updatedAt; }
+
+    public Set<PolicyUserAssignment> getUserAssignments() { return userAssignments; }
+    public Set<PolicyUserGroupAssignment> getGroupAssignments() { return groupAssignments; }
+    public Set<PolicyRoleAssignment> getRoleAssignments() { return roleAssignments; }
+    public Set<PolicyEquipmentAssignment> getEquipmentAssignments() { return equipmentAssignments; }
+
+    @Override
+    public String toString() {
+        return String.format(
+            "%nEquipmentPolicy{%n  id=%d%n  policyName='%s'%n  enabled=%s%n  priority=%d%n}",
+            id, policyName, enabled, priority
+        );
+    }
+}
+```
+
+### 20.3 Policy Config JSON Structure
+
+The `policyConfig` JSONB field stores all policy settings:
+
+```json
+{
+  "commonSettings": {
+    "allowedProtocols": ["SSH", "RDP", "TELNET"],
+    "allowedDbms": ["MySQL", "PostgreSQL"],
+    "maxSshSessions": 5,
+    "maxRdpSessions": 3,
+    "timeoutMinutes": 60
+  },
+  "allowedTime": {
+    "startDate": "2024-01-01",
+    "endDate": "2025-12-31",
+    "borderless": false,
+    "timeSlots": [
+      {"dayOfWeek": 1, "hourStart": 9, "hourEnd": 18},
+      {"dayOfWeek": 2, "hourStart": 9, "hourEnd": 18},
+      {"dayOfWeek": 3, "hourStart": 9, "hourEnd": 18},
+      {"dayOfWeek": 4, "hourStart": 9, "hourEnd": 18},
+      {"dayOfWeek": 5, "hourStart": 9, "hourEnd": 18}
+    ]
+  },
+  "loginControl": {
+    "ipFilteringType": "allow_specified_ips",
+    "allowedIps": ["192.168.1.0/24", "10.0.0.1"]
+  },
+  "commandSettings": [
+    {
+      "controlMethod": "blacklist",
+      "commandListIds": [1, 2]
+    }
+  ]
+}
+```
+
+**TimeSlots dayOfWeek values:** 1=Monday, 2=Tuesday, 3=Wednesday, 4=Thursday, 5=Friday, 6=Saturday, 7=Sunday
+
+---
+
+## Step 21: Create Policy Assignment Entities
+
+### 21.1 Create `PolicyUserAssignment.java`
+
+```java
+package com.hunesion.drool_v2.model.entity;
+
+import jakarta.persistence.*;
+
+@Entity
+@Table(name = "policy_user_assignments")
+public class PolicyUserAssignment {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "policy_id", nullable = false)
+    private EquipmentPolicy policy;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
+
+    // Getters and Setters
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public EquipmentPolicy getPolicy() { return policy; }
+    public void setPolicy(EquipmentPolicy policy) { this.policy = policy; }
+    public User getUser() { return user; }
+    public void setUser(User user) { this.user = user; }
+}
+```
+
+### 21.2 Create `PolicyUserGroupAssignment.java`
+
+```java
+package com.hunesion.drool_v2.model.entity;
+
+import jakarta.persistence.*;
+
+@Entity
+@Table(name = "policy_user_group_assignments")
+public class PolicyUserGroupAssignment {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "policy_id", nullable = false)
+    private EquipmentPolicy policy;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "group_id", nullable = false)
+    private UserGroup group;
+
+    // Getters and Setters
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public EquipmentPolicy getPolicy() { return policy; }
+    public void setPolicy(EquipmentPolicy policy) { this.policy = policy; }
+    public UserGroup getGroup() { return group; }
+    public void setGroup(UserGroup group) { this.group = group; }
+}
+```
+
+### 21.3 Create `PolicyRoleAssignment.java`
+
+```java
+package com.hunesion.drool_v2.model.entity;
+
+import jakarta.persistence.*;
+
+@Entity
+@Table(name = "policy_role_assignments")
+public class PolicyRoleAssignment {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "policy_id", nullable = false)
+    private EquipmentPolicy policy;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "role_id", nullable = false)
+    private Role role;
+
+    // Getters and Setters
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public EquipmentPolicy getPolicy() { return policy; }
+    public void setPolicy(EquipmentPolicy policy) { this.policy = policy; }
+    public Role getRole() { return role; }
+    public void setRole(Role role) { this.role = role; }
+}
+```
+
+### 21.4 Create `PolicyEquipmentAssignment.java`
+
+```java
+package com.hunesion.drool_v2.model.entity;
+
+import jakarta.persistence.*;
+
+@Entity
+@Table(name = "policy_equipment_assignments")
+public class PolicyEquipmentAssignment {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "policy_id", nullable = false)
+    private EquipmentPolicy policy;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "equipment_id", nullable = false)
+    private Equipment equipment;
+
+    // Getters and Setters
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public EquipmentPolicy getPolicy() { return policy; }
+    public void setPolicy(EquipmentPolicy policy) { this.policy = policy; }
+    public Equipment getEquipment() { return equipment; }
+    public void setEquipment(Equipment equipment) { this.equipment = equipment; }
+}
+```
+
+---
+
+## Step 22: Create PolicyGroup Feature
+
+PolicyGroup allows bundling multiple policies together for easier assignment.
+
+### 22.1 Create `PolicyGroup.java`
+
+```java
+package com.hunesion.drool_v2.model.entity;
+
+import jakarta.persistence.*;
+import java.time.LocalDateTime;
+import java.util.HashSet;
+import java.util.Set;
+
+@Entity
+@Table(name = "policy_groups")
+public class PolicyGroup {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "group_name", nullable = false, unique = true)
+    private String groupName;
+
+    @Column(columnDefinition = "TEXT")
+    private String description;
+
+    @Column(nullable = false)
+    private boolean enabled = true;
+
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    @Column(name = "updated_at", nullable = false)
+    private LocalDateTime updatedAt;
+
+    @OneToMany(mappedBy = "policyGroup", cascade = CascadeType.ALL, orphanRemoval = true)
+    private Set<PolicyGroupMember> policyMembers = new HashSet<>();
+
+    @OneToMany(mappedBy = "policyGroup", cascade = CascadeType.ALL, orphanRemoval = true)
+    private Set<PolicyGroupUserAssignment> userAssignments = new HashSet<>();
+
+    @OneToMany(mappedBy = "policyGroup", cascade = CascadeType.ALL, orphanRemoval = true)
+    private Set<PolicyGroupUserGroupAssignment> userGroupAssignments = new HashSet<>();
+
+    @OneToMany(mappedBy = "policyGroup", cascade = CascadeType.ALL, orphanRemoval = true)
+    private Set<PolicyGroupRoleAssignment> roleAssignments = new HashSet<>();
+
+    @PrePersist
+    protected void onCreate() {
+        createdAt = LocalDateTime.now();
+        updatedAt = LocalDateTime.now();
+    }
+
+    @PreUpdate
+    protected void onUpdate() {
+        updatedAt = LocalDateTime.now();
+    }
+
+    // Getters and Setters
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public String getGroupName() { return groupName; }
+    public void setGroupName(String groupName) { this.groupName = groupName; }
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
+    public boolean isEnabled() { return enabled; }
+    public void setEnabled(boolean enabled) { this.enabled = enabled; }
+    public LocalDateTime getCreatedAt() { return createdAt; }
+    public LocalDateTime getUpdatedAt() { return updatedAt; }
+    public Set<PolicyGroupMember> getPolicyMembers() { return policyMembers; }
+    public Set<PolicyGroupUserAssignment> getUserAssignments() { return userAssignments; }
+    public Set<PolicyGroupUserGroupAssignment> getUserGroupAssignments() { return userGroupAssignments; }
+    public Set<PolicyGroupRoleAssignment> getRoleAssignments() { return roleAssignments; }
+
+    @Override
+    public String toString() {
+        return String.format(
+            "%nPolicyGroup{%n  id=%d%n  groupName='%s'%n  enabled=%s%n  memberCount=%d%n}",
+            id, groupName, enabled, policyMembers != null ? policyMembers.size() : 0
+        );
+    }
+}
+```
+
+### 22.2 Create `PolicyGroupMember.java`
+
+```java
+package com.hunesion.drool_v2.model.entity;
+
+import jakarta.persistence.*;
+
+@Entity
+@Table(name = "policy_group_members")
+public class PolicyGroupMember {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "policy_group_id", nullable = false)
+    private PolicyGroup policyGroup;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "policy_id", nullable = false)
+    private EquipmentPolicy policy;
+
+    // Getters and Setters
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public PolicyGroup getPolicyGroup() { return policyGroup; }
+    public void setPolicyGroup(PolicyGroup policyGroup) { this.policyGroup = policyGroup; }
+    public EquipmentPolicy getPolicy() { return policy; }
+    public void setPolicy(EquipmentPolicy policy) { this.policy = policy; }
+}
+```
+
+### 22.3 PolicyGroup Assignment Entities
+
+**PolicyGroupUserAssignment.java:**
+```java
+package com.hunesion.drool_v2.model.entity;
+
+import jakarta.persistence.*;
+
+@Entity
+@Table(name = "policy_group_user_assignments")
+public class PolicyGroupUserAssignment {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "policy_group_id", nullable = false)
+    private PolicyGroup policyGroup;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
+
+    // Getters and Setters
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public PolicyGroup getPolicyGroup() { return policyGroup; }
+    public void setPolicyGroup(PolicyGroup policyGroup) { this.policyGroup = policyGroup; }
+    public User getUser() { return user; }
+    public void setUser(User user) { this.user = user; }
+}
+```
+
+**PolicyGroupUserGroupAssignment.java:**
+```java
+package com.hunesion.drool_v2.model.entity;
+
+import jakarta.persistence.*;
+
+@Entity
+@Table(name = "policy_group_user_group_assignments")
+public class PolicyGroupUserGroupAssignment {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "policy_group_id", nullable = false)
+    private PolicyGroup policyGroup;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_group_id", nullable = false)
+    private UserGroup userGroup;
+
+    // Getters and Setters
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public PolicyGroup getPolicyGroup() { return policyGroup; }
+    public void setPolicyGroup(PolicyGroup policyGroup) { this.policyGroup = policyGroup; }
+    public UserGroup getUserGroup() { return userGroup; }
+    public void setUserGroup(UserGroup userGroup) { this.userGroup = userGroup; }
+}
+```
+
+**PolicyGroupRoleAssignment.java:**
+```java
+package com.hunesion.drool_v2.model.entity;
+
+import jakarta.persistence.*;
+
+@Entity
+@Table(name = "policy_group_role_assignments")
+public class PolicyGroupRoleAssignment {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "policy_group_id", nullable = false)
+    private PolicyGroup policyGroup;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "role_id", nullable = false)
+    private Role role;
+
+    // Getters and Setters
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public PolicyGroup getPolicyGroup() { return policyGroup; }
+    public void setPolicyGroup(PolicyGroup policyGroup) { this.policyGroup = policyGroup; }
+    public Role getRole() { return role; }
+    public void setRole(Role role) { this.role = role; }
+}
+```
+
+---
+
+## Step 23: Create Flyway Migration for PolicyGroup
+
+Create `src/main/resources/db/migration/V20260119__add_policy_groups.sql`:
+
+```sql
+-- PolicyGroup table
+CREATE TABLE IF NOT EXISTS policy_groups (
+    id BIGSERIAL PRIMARY KEY,
+    group_name VARCHAR(255) NOT NULL UNIQUE,
+    description TEXT,
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- PolicyGroup members (which policies belong to a group)
+CREATE TABLE IF NOT EXISTS policy_group_members (
+    id BIGSERIAL PRIMARY KEY,
+    policy_group_id BIGINT NOT NULL REFERENCES policy_groups(id) ON DELETE CASCADE,
+    policy_id BIGINT NOT NULL REFERENCES equipment_policies(id) ON DELETE CASCADE,
+    UNIQUE(policy_group_id, policy_id)
+);
+
+-- PolicyGroup assigned to Users
+CREATE TABLE IF NOT EXISTS policy_group_user_assignments (
+    id BIGSERIAL PRIMARY KEY,
+    policy_group_id BIGINT NOT NULL REFERENCES policy_groups(id) ON DELETE CASCADE,
+    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE(policy_group_id, user_id)
+);
+
+-- PolicyGroup assigned to UserGroups
+CREATE TABLE IF NOT EXISTS policy_group_user_group_assignments (
+    id BIGSERIAL PRIMARY KEY,
+    policy_group_id BIGINT NOT NULL REFERENCES policy_groups(id) ON DELETE CASCADE,
+    user_group_id BIGINT NOT NULL REFERENCES user_groups(id) ON DELETE CASCADE,
+    UNIQUE(policy_group_id, user_group_id)
+);
+
+-- PolicyGroup assigned to Roles
+CREATE TABLE IF NOT EXISTS policy_group_role_assignments (
+    id BIGSERIAL PRIMARY KEY,
+    policy_group_id BIGINT NOT NULL REFERENCES policy_groups(id) ON DELETE CASCADE,
+    role_id BIGINT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    UNIQUE(policy_group_id, role_id)
+);
+
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_pg_members_group ON policy_group_members(policy_group_id);
+CREATE INDEX IF NOT EXISTS idx_pg_members_policy ON policy_group_members(policy_id);
+CREATE INDEX IF NOT EXISTS idx_pg_user_assign_group ON policy_group_user_assignments(policy_group_id);
+CREATE INDEX IF NOT EXISTS idx_pg_user_assign_user ON policy_group_user_assignments(user_id);
+CREATE INDEX IF NOT EXISTS idx_pg_usergroup_assign_group ON policy_group_user_group_assignments(policy_group_id);
+CREATE INDEX IF NOT EXISTS idx_pg_role_assign_group ON policy_group_role_assignments(policy_group_id);
+```
+
+---
+
+## Step 24: Create Cache Service
+
+### 24.1 Create `PolicyConfigCache.java`
+
+Create `src/main/java/com/hunesion/drool_v2/service/PolicyConfigCache.java`:
+
+```java
+package com.hunesion.drool_v2.service;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.stereotype.Service;
+
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * PolicyConfigCache - Caches parsed policy config JSON to avoid repeated parsing
+ * This significantly improves performance when the same policies are accessed repeatedly
+ */
+@Service
+public class PolicyConfigCache {
+
+    private final ObjectMapper objectMapper;
+
+    public PolicyConfigCache(ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
+    }
+
+    /**
+     * Parse and cache policy config JSON
+     * Cache key: policy ID
+     */
+    @Cacheable(value = "policyConfigCache", key = "#policyId")
+    public Map<String, Object> getParsedConfig(Long policyId, String policyConfigJson) {
+        if (policyConfigJson == null || policyConfigJson.isEmpty()) {
+            return new HashMap<>();
+        }
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> config = objectMapper.readValue(policyConfigJson, Map.class);
+            return config;
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Failed to parse policy config for policy: " + policyId, e);
+        }
+    }
+
+    /**
+     * Evict cache when policy is updated
+     */
+    @CacheEvict(value = "policyConfigCache", key = "#policyId")
+    public void evictPolicyConfig(Long policyId) {
+        // Cache eviction handled by annotation
+    }
+
+    /**
+     * Evict all policy configs (when rebuilding rules)
+     */
+    @CacheEvict(value = "policyConfigCache", allEntries = true)
+    public void evictAllPolicyConfigs() {
+        // Cache eviction handled by annotation
+    }
+}
+```
+
+### 24.2 Enable Caching in Main Application
+
+Add `@EnableCaching` to your main application class:
+
+```java
+package com.hunesion.drool_v2;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cache.annotation.EnableCaching;
+
+@SpringBootApplication
+@EnableCaching
+public class DroolV2Application {
+    public static void main(String[] args) {
+        SpringApplication.run(DroolV2Application.class, args);
+    }
+}
+```
+
+---
+
+## Step 25: Create PolicyGroup Repository
+
+Create `src/main/java/com/hunesion/drool_v2/repository/PolicyGroupRepository.java`:
+
+```java
+package com.hunesion.drool_v2.repository;
+
+import com.hunesion.drool_v2.model.entity.PolicyGroup;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+import java.util.Optional;
+
+@Repository
+public interface PolicyGroupRepository extends JpaRepository<PolicyGroup, Long> {
+
+    Optional<PolicyGroup> findByGroupName(String groupName);
+
+    List<PolicyGroup> findByEnabledTrue();
+
+    @Query("SELECT pg FROM PolicyGroup pg JOIN pg.userAssignments ua WHERE ua.user.id = :userId AND pg.enabled = true")
+    List<PolicyGroup> findAssignedToUser(@Param("userId") Long userId);
+
+    @Query("SELECT pg FROM PolicyGroup pg JOIN pg.userGroupAssignments uga WHERE uga.userGroup.id = :groupId AND pg.enabled = true")
+    List<PolicyGroup> findAssignedToUserGroup(@Param("groupId") Long groupId);
+
+    @Query("SELECT pg FROM PolicyGroup pg JOIN pg.roleAssignments ra WHERE ra.role.id = :roleId AND pg.enabled = true")
+    List<PolicyGroup> findAssignedToRole(@Param("roleId") Long roleId);
+}
+```
+
+---
+
+## Step 26: Create PolicyGroup Service
+
+Create `src/main/java/com/hunesion/drool_v2/service/PolicyGroupService.java`:
+
+```java
+package com.hunesion.drool_v2.service;
+
+import com.hunesion.drool_v2.dto.PolicyGroupDTO;
+import com.hunesion.drool_v2.model.entity.*;
+import com.hunesion.drool_v2.repository.*;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+
+@Service
+public class PolicyGroupService {
+
+    private final PolicyGroupRepository policyGroupRepository;
+    private final EquipmentPolicyRepository policyRepository;
+    private final UserRepository userRepository;
+    private final UserGroupRepository userGroupRepository;
+    private final RoleRepository roleRepository;
+
+    @Autowired
+    public PolicyGroupService(
+            PolicyGroupRepository policyGroupRepository,
+            EquipmentPolicyRepository policyRepository,
+            UserRepository userRepository,
+            UserGroupRepository userGroupRepository,
+            RoleRepository roleRepository) {
+        this.policyGroupRepository = policyGroupRepository;
+        this.policyRepository = policyRepository;
+        this.userRepository = userRepository;
+        this.userGroupRepository = userGroupRepository;
+        this.roleRepository = roleRepository;
+    }
+
+    public List<PolicyGroup> getAllPolicyGroups() {
+        return policyGroupRepository.findAll();
+    }
+
+    public PolicyGroup getPolicyGroupById(Long id) {
+        return policyGroupRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("PolicyGroup not found: " + id));
+    }
+
+    @Transactional
+    public PolicyGroup createPolicyGroup(PolicyGroupDTO dto) {
+        PolicyGroup group = new PolicyGroup();
+        group.setGroupName(dto.getGroupName());
+        group.setDescription(dto.getDescription());
+        group.setEnabled(dto.isEnabled());
+        return policyGroupRepository.save(group);
+    }
+
+    @Transactional
+    public PolicyGroup addPolicyToGroup(Long groupId, Long policyId) {
+        PolicyGroup group = getPolicyGroupById(groupId);
+        EquipmentPolicy policy = policyRepository.findById(policyId)
+                .orElseThrow(() -> new RuntimeException("Policy not found: " + policyId));
+
+        PolicyGroupMember member = new PolicyGroupMember();
+        member.setPolicyGroup(group);
+        member.setPolicy(policy);
+        group.getPolicyMembers().add(member);
+
+        return policyGroupRepository.save(group);
+    }
+
+    @Transactional
+    public PolicyGroup assignToUser(Long groupId, Long userId) {
+        PolicyGroup group = getPolicyGroupById(groupId);
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found: " + userId));
+
+        PolicyGroupUserAssignment assignment = new PolicyGroupUserAssignment();
+        assignment.setPolicyGroup(group);
+        assignment.setUser(user);
+        group.getUserAssignments().add(assignment);
+
+        return policyGroupRepository.save(group);
+    }
+
+    @Transactional
+    public PolicyGroup assignToUserGroup(Long groupId, Long userGroupId) {
+        PolicyGroup group = getPolicyGroupById(groupId);
+        UserGroup userGroup = userGroupRepository.findById(userGroupId)
+                .orElseThrow(() -> new RuntimeException("UserGroup not found: " + userGroupId));
+
+        PolicyGroupUserGroupAssignment assignment = new PolicyGroupUserGroupAssignment();
+        assignment.setPolicyGroup(group);
+        assignment.setUserGroup(userGroup);
+        group.getUserGroupAssignments().add(assignment);
+
+        return policyGroupRepository.save(group);
+    }
+
+    @Transactional
+    public PolicyGroup assignToRole(Long groupId, Long roleId) {
+        PolicyGroup group = getPolicyGroupById(groupId);
+        Role role = roleRepository.findById(roleId)
+                .orElseThrow(() -> new RuntimeException("Role not found: " + roleId));
+
+        PolicyGroupRoleAssignment assignment = new PolicyGroupRoleAssignment();
+        assignment.setPolicyGroup(group);
+        assignment.setRole(role);
+        group.getRoleAssignments().add(assignment);
+
+        return policyGroupRepository.save(group);
+    }
+
+    @Transactional
+    public void deletePolicyGroup(Long id) {
+        policyGroupRepository.deleteById(id);
+    }
+}
+```
+
+---
+
+## Step 27: Create PolicyGroup Controller
+
+Create `src/main/java/com/hunesion/drool_v2/controller/PolicyGroupController.java`:
+
+```java
+package com.hunesion.drool_v2.controller;
+
+import com.hunesion.drool_v2.dto.PolicyGroupDTO;
+import com.hunesion.drool_v2.model.entity.PolicyGroup;
+import com.hunesion.drool_v2.service.PolicyGroupService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/policy-groups")
+@Tag(name = "PolicyGroup", description = "Manage policy groups for bundling policies")
+public class PolicyGroupController {
+
+    private final PolicyGroupService policyGroupService;
+
+    @Autowired
+    public PolicyGroupController(PolicyGroupService policyGroupService) {
+        this.policyGroupService = policyGroupService;
+    }
+
+    @GetMapping
+    @Operation(summary = "Get all policy groups")
+    public ResponseEntity<List<PolicyGroup>> getAllPolicyGroups() {
+        return ResponseEntity.ok(policyGroupService.getAllPolicyGroups());
+    }
+
+    @GetMapping("/{id}")
+    @Operation(summary = "Get policy group by ID")
+    public ResponseEntity<PolicyGroup> getPolicyGroupById(@PathVariable Long id) {
+        return ResponseEntity.ok(policyGroupService.getPolicyGroupById(id));
+    }
+
+    @PostMapping
+    @Operation(summary = "Create a new policy group")
+    public ResponseEntity<PolicyGroup> createPolicyGroup(@RequestBody PolicyGroupDTO dto) {
+        return ResponseEntity.ok(policyGroupService.createPolicyGroup(dto));
+    }
+
+    @PostMapping("/{groupId}/policies/{policyId}")
+    @Operation(summary = "Add a policy to a group")
+    public ResponseEntity<PolicyGroup> addPolicyToGroup(
+            @PathVariable Long groupId,
+            @PathVariable Long policyId) {
+        return ResponseEntity.ok(policyGroupService.addPolicyToGroup(groupId, policyId));
+    }
+
+    @PostMapping("/{groupId}/assign/user/{userId}")
+    @Operation(summary = "Assign policy group to a user")
+    public ResponseEntity<PolicyGroup> assignToUser(
+            @PathVariable Long groupId,
+            @PathVariable Long userId) {
+        return ResponseEntity.ok(policyGroupService.assignToUser(groupId, userId));
+    }
+
+    @PostMapping("/{groupId}/assign/user-group/{userGroupId}")
+    @Operation(summary = "Assign policy group to a user group")
+    public ResponseEntity<PolicyGroup> assignToUserGroup(
+            @PathVariable Long groupId,
+            @PathVariable Long userGroupId) {
+        return ResponseEntity.ok(policyGroupService.assignToUserGroup(groupId, userGroupId));
+    }
+
+    @PostMapping("/{groupId}/assign/role/{roleId}")
+    @Operation(summary = "Assign policy group to a role")
+    public ResponseEntity<PolicyGroup> assignToRole(
+            @PathVariable Long groupId,
+            @PathVariable Long roleId) {
+        return ResponseEntity.ok(policyGroupService.assignToRole(groupId, roleId));
+    }
+
+    @DeleteMapping("/{id}")
+    @Operation(summary = "Delete a policy group")
+    public ResponseEntity<Void> deletePolicyGroup(@PathVariable Long id) {
+        policyGroupService.deletePolicyGroup(id);
+        return ResponseEntity.noContent().build();
+    }
+}
+```
+
+---
+
+## Step 28: Update PolicyFactLoader for PolicyGroup Support
+
+The `PolicyFactLoader` must be updated to resolve policies from PolicyGroups:
+
+```java
+// In PolicyFactLoader.loadPoliciesIntoFact() method, add:
+
+// Policies from PolicyGroups assigned to user
+List<PolicyGroup> userPolicyGroups = policyGroupRepository.findAssignedToUser(user.getId());
+userPolicyGroups.forEach(pg -> {
+    pg.getPolicyMembers().forEach(member -> policyIds.add(member.getPolicy().getId()));
+});
+
+// Policies from PolicyGroups assigned to user's groups
+user.getGroups().forEach(group -> {
+    List<PolicyGroup> groupPolicyGroups = policyGroupRepository.findAssignedToUserGroup(group.getId());
+    groupPolicyGroups.forEach(pg -> {
+        pg.getPolicyMembers().forEach(member -> policyIds.add(member.getPolicy().getId()));
+    });
+});
+
+// Policies from PolicyGroups assigned to user's roles
+user.getRoles().forEach(role -> {
+    List<PolicyGroup> rolePolicyGroups = policyGroupRepository.findAssignedToRole(role.getId());
+    rolePolicyGroups.forEach(pg -> {
+        pg.getPolicyMembers().forEach(member -> policyIds.add(member.getPolicy().getId()));
+    });
+});
+```
+
+---
+
+## Step 29: Time-Based Access Control
+
+### 29.1 How TimeSlots Work
+
+TimeSlots in `policyConfig.allowedTime.timeSlots` define when access is allowed:
+
+```json
+"allowedTime": {
+  "timeSlots": [
+    {"dayOfWeek": 1, "hourStart": 9, "hourEnd": 18},
+    {"dayOfWeek": 2, "hourStart": 9, "hourEnd": 18}
+  ]
+}
+```
+
+**Rules:**
+- If policy has `timeSlots` defined → access only during those times
+- If policy has NO `timeSlots` → access DENIED (timeSlots is mandatory)
+
+### 29.2 EquipmentAccessRequest Time Fields
+
+The `EquipmentAccessRequest` class must initialize time fields in constructor:
+
+```java
+public EquipmentAccessRequest() {
+    this.requestTime = LocalDateTime.now();
+    this.currentHour = this.requestTime.getHour();
+    this.currentDayOfWeek = this.requestTime.getDayOfWeek().getValue();
+}
+```
+
+### 29.3 isWithinAllowedTime() Method
+
+```java
+public boolean isWithinAllowedTime() {
+    if (allowedTimeSlots == null || allowedTimeSlots.isEmpty()) {
+        return false; // No timeSlots defined = deny access
+    }
+    if (currentDayOfWeek == null || currentHour == null) {
+        return false;
+    }
+    return allowedTimeSlots.stream()
+            .anyMatch(slot -> slot.isWithinTime(currentDayOfWeek, currentHour));
+}
+```
+
+---
+
+## Step 30: Entity Relationship Diagram (ERD)
+
+### Core Entities
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│      User       │     │      Role       │     │    UserGroup    │
+├─────────────────┤     ├─────────────────┤     ├─────────────────┤
+│ id              │     │ id              │     │ id              │
+│ username        │     │ name            │     │ name            │
+│ email           │     │ description     │     │ description     │
+└────────┬────────┘     └────────┬────────┘     └────────┬────────┘
+         │                       │                       │
+         │    ┌──────────────────┴───────────────────────┘
+         │    │
+         ▼    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      EquipmentPolicy                             │
+├─────────────────────────────────────────────────────────────────┤
+│ id, policyName, policyConfig (JSONB), enabled, priority         │
+└─────────────────────────────────────────────────────────────────┘
+         │
+         │ (via assignment tables)
+         ▼
+┌─────────────────┐  ┌─────────────────────┐  ┌──────────────────┐
+│PolicyUserAssign │  │PolicyUserGroupAssign│  │PolicyRoleAssign  │
+├─────────────────┤  ├─────────────────────┤  ├──────────────────┤
+│ policy_id (FK)  │  │ policy_id (FK)      │  │ policy_id (FK)   │
+│ user_id (FK)    │  │ group_id (FK)       │  │ role_id (FK)     │
+└─────────────────┘  └─────────────────────┘  └──────────────────┘
+```
+
+### PolicyGroup Relationships
+
+```
+┌─────────────────────┐
+│     PolicyGroup     │
+├─────────────────────┤
+│ id                  │
+│ groupName           │
+│ description         │
+│ enabled             │
+└──────────┬──────────┘
+           │
+           │ contains policies via
+           ▼
+┌─────────────────────┐
+│  PolicyGroupMember  │
+├─────────────────────┤
+│ policy_group_id(FK) │───────┐
+│ policy_id (FK)      │───────┼──► EquipmentPolicy
+└─────────────────────┘       │
+                              │
+           ┌──────────────────┘
+           │ assigned to via
+           ▼
+┌──────────────────────────┐  ┌────────────────────────────┐  ┌─────────────────────────┐
+│PolicyGroupUserAssignment │  │PolicyGroupUserGroupAssign  │  │PolicyGroupRoleAssignment│
+├──────────────────────────┤  ├────────────────────────────┤  ├─────────────────────────┤
+│ policy_group_id (FK)     │  │ policy_group_id (FK)       │  │ policy_group_id (FK)    │
+│ user_id (FK)             │  │ user_group_id (FK)         │  │ role_id (FK)            │
+└──────────────────────────┘  └────────────────────────────┘  └─────────────────────────┘
+```
+
+---
+
+## Step 31: Testing the Implementation
+
+### 31.1 Create a Policy with TimeSlots
+
+```bash
+curl -X POST http://localhost:8081/api/equipment-policies \
+  -H "Content-Type: application/json" \
+  -d '{
+    "policyName": "Weekday SSH Access",
+    "description": "SSH access Monday-Friday 9am-6pm",
+    "policyClassification": "common",
+    "policyApplication": "apply",
+    "enabled": true,
+    "priority": 100,
+    "policyConfig": {
+      "commonSettings": {
+        "allowedProtocols": ["SSH"]
+      },
+      "allowedTime": {
+        "timeSlots": [
+          {"dayOfWeek": 1, "hourStart": 9, "hourEnd": 18},
+          {"dayOfWeek": 2, "hourStart": 9, "hourEnd": 18},
+          {"dayOfWeek": 3, "hourStart": 9, "hourEnd": 18},
+          {"dayOfWeek": 4, "hourStart": 9, "hourEnd": 18},
+          {"dayOfWeek": 5, "hourStart": 9, "hourEnd": 18}
+        ]
+      }
+    }
+  }'
+```
+
+### 31.2 Create a PolicyGroup
+
+```bash
+curl -X POST http://localhost:8081/api/policy-groups \
+  -H "Content-Type: application/json" \
+  -d '{
+    "groupName": "IT Department Policies",
+    "description": "All policies for IT department",
+    "enabled": true
+  }'
+```
+
+### 31.3 Add Policy to Group
+
+```bash
+curl -X POST http://localhost:8081/api/policy-groups/1/policies/1
+```
+
+### 31.4 Assign PolicyGroup to User
+
+```bash
+curl -X POST http://localhost:8081/api/policy-groups/1/assign/user/1
+```
+
+### 31.5 Test SSH Access
+
+```bash
+curl "http://localhost:8081/api/client/ssh?username=admin&equipmentId=1"
+```
+
+---
+
+## Step 32: Verification Checklist (Current Implementation)
+
+- [ ] Cache is working (`spring.cache.type: caffeine` in application.yml)
+- [ ] PolicyGroup CRUD operations work
+- [ ] Policies can be added to PolicyGroups
+- [ ] PolicyGroups can be assigned to Users/UserGroups/Roles
+- [ ] TimeSlots are enforced (access denied outside allowed times)
+- [ ] Policies without timeSlots deny access
+- [ ] Debug logging shows correct policy resolution
+- [ ] Cache eviction works when policies are updated
+
+---
+
+## Summary - Current Implementation Features
+
+- ✅ **EquipmentPolicy** with JSONB `policyConfig` (single source of truth)
+- ✅ **PolicyGroup** for bundling multiple policies
+- ✅ **TimeSlots** for time-based access control (mandatory for access)
+- ✅ **Caffeine Cache** for parsed policy configs
+- ✅ **Flyway** database migrations
+- ✅ **Policy Assignment** to Users, UserGroups, Roles, Equipment
+- ✅ **PolicyGroup Assignment** to Users, UserGroups, Roles
+- ✅ **Debug Logging** for policy resolution tracing
+- ✅ **Drools** dynamic rule generation from JSONB config
+
+**Full Project Setup Complete!** 🎉

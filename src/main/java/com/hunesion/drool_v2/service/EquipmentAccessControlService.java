@@ -8,6 +8,8 @@ import org.kie.api.runtime.KieSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+
 /**
  * EquipmentAccessControlService - Evaluates equipment access using Drools
  */
@@ -40,9 +42,12 @@ public class EquipmentAccessControlService {
         request.setDbmsType(requestDto.getDbmsType());
         request.setCommand(requestDto.getCommand());
         request.setClientIp(requestDto.getClientIp());
-        if (requestDto.getRequestTime() != null) {
-            request.setRequestTime(requestDto.getRequestTime());
-        }
+
+        // Set request time - use provided time or default to current time
+        // This ensures time-based policy checks work correctly
+        request.setRequestTime(requestDto.getRequestTime() != null 
+                ? requestDto.getRequestTime() 
+                : LocalDateTime.now());
 
         // Evaluate using Drools
         EquipmentAccessResult result = evaluateAccess(request);

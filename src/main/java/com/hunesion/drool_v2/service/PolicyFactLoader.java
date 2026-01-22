@@ -282,6 +282,12 @@ public class PolicyFactLoader {
                     .collect(Collectors.joining(", ")));
             System.out.println("Allowed Protocols: " + allProtocols);
             System.out.println("Allowed DBMS: " + allDbms);
+            System.out.println("Allowed TimeSlots: " + allTimeSlots.stream()
+                .sorted((a, b) -> a.getDayOfWeek().compareTo(b.getDayOfWeek()))
+                .map(ts -> "Day" + ts.getDayOfWeek() + "(" + ts.getHourStart() + "-" + ts.getHourEnd() + "h)")
+                .collect(Collectors.joining(", ")));
+            System.out.println("Current Request Time: Day" + request.getCurrentDayOfWeek() + " Hour" + request.getCurrentHour());
+            System.out.println("isWithinAllowedTime: " + request.isWithinAllowedTime());
             System.out.println("================================");
         }
 

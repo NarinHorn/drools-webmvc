@@ -107,21 +107,9 @@ public class EquipmentPolicyRuleGenerator {
                 conditions.append("            , protocol == null\n");
             }
 
-            // Generate from allowedTime
-            @SuppressWarnings("unchecked")
-            Map<String, Object> allowedTime = (Map<String, Object>) config.get("allowedTime");
-            if (allowedTime != null) {
-                @SuppressWarnings("unchecked")
-                List<Map<String, Object>> timeSlots = (List<Map<String, Object>>) allowedTime.get("timeSlots");
-                if (timeSlots != null && !timeSlots.isEmpty()) {
-                    // Always add comma since isAssignedToPolicy is already on previous line
-                    if (conditions.length() > 0) {
-                        conditions.append("            , isWithinAllowedTime()\n");
-                    } else {
-                        conditions.append("            , isWithinAllowedTime()\n");
-                    }
-                }
-            }
+            // Generate from allowedTime - ALWAYS require time check
+            // If no timeSlots defined, isWithinAllowedTime() will return false (deny access)
+            conditions.append("            , isWithinAllowedTime()\n");
 
             // Generate from commandSettings
             @SuppressWarnings("unchecked")
