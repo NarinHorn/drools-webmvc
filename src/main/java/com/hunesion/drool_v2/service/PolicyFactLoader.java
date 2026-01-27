@@ -152,119 +152,40 @@ public class PolicyFactLoader {
             Set<String> allWhitelistedCommands = new HashSet<>();
             Set<TimeSlot> allTimeSlots = new HashSet<>();
             Set<String> allAllowedIps = new HashSet<>();
-            String ipFilteringType = null;
+            final String[] ipFilteringType = {null}; // Use array to allow modification in lambda
 
             for (EquipmentPolicy policy : policies) {
                 if (!policy.isEnabled() || !"apply".equals(policy.getPolicyApplication())) {
                     continue;
                 }
 
-                // Check if policy uses JSONB config (new approach) or normalized tables (old approach)
                 String policyConfigJson = policy.getPolicyConfig();
-                if (policyConfigJson != null && !policyConfigJson.isEmpty()) {
-                    // Use cached JSONB config parsing (single source of truth)
-                    Map<String, Object> config = policyConfigCache.getParsedConfig(
-                        policy.getId(),
-                        policyConfigJson
-                    );
+                if (policyConfigJson == null || policyConfigJson.isEmpty()) {
+                    continue;
+                }
 
-                    // Extract commonSettings
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> commonSettings = (Map<String, Object>) config.get("commonSettings");
-                    if (commonSettings != null) {
-                        @SuppressWarnings("unchecked")
-                        List<String> protocols = (List<String>) commonSettings.get("allowedProtocols");
-                        if (protocols != null) {
-                            allProtocols.addAll(protocols);
-                        }
+                // Use cached JSONB config parsing
+                Map<String, Object> config = policyConfigCache.getParsedConfig(
+                    policy.getId(),
+                    policyConfigJson
+                );
 
-                        @SuppressWarnings("unchecked")
-                        List<String> dbms = (List<String>) commonSettings.get("allowedDbms");
-                        if (dbms != null) {
-                            allDbms.addAll(dbms);
-                        }
-                    }
+                // Get policy type and aggregate based on type
+                String typeCode = policy.getPolicyType().getTypeCode();
 
-                    // Extract allowedTime
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> allowedTime = (Map<String, Object>) config.get("allowedTime");
-                    if (allowedTime != null) {
-                        @SuppressWarnings("unchecked")
-                        List<Map<String, Object>> timeSlots = (List<Map<String, Object>>) allowedTime.get("timeSlots");
-                        if (timeSlots != null) {
-                            timeSlots.forEach(ts -> {
-                                Object dayOfWeekObj = ts.get("dayOfWeek");
-                                Object hourStartObj = ts.get("hourStart");
-                                Object hourEndObj = ts.get("hourEnd");
-                                if (dayOfWeekObj != null && hourStartObj != null && hourEndObj != null) {
-                                    // Convert dayOfWeek to Integer (1=Monday, 7=Sunday)
-                                    Integer dayOfWeek;
-                                    if (dayOfWeekObj instanceof Integer) {
-                                        dayOfWeek = (Integer) dayOfWeekObj;
-                                    } else if (dayOfWeekObj instanceof Number) {
-                                        dayOfWeek = ((Number) dayOfWeekObj).intValue();
-                                    } else {
-                                        // Handle string day names (MONDAY, TUESDAY, etc.)
-                                        String dayStr = dayOfWeekObj.toString().toUpperCase();
-                                        dayOfWeek = convertDayNameToInteger(dayStr);
-                                    }
-
-                                    Integer hourStart = hourStartObj instanceof Integer ?
-                                        (Integer) hourStartObj : Integer.valueOf(hourStartObj.toString());
-                                    Integer hourEnd = hourEndObj instanceof Integer ?
-                                        (Integer) hourEndObj : Integer.valueOf(hourEndObj.toString());
-
-                                    if (dayOfWeek != null) {
-                                        allTimeSlots.add(new TimeSlot(dayOfWeek, hourStart, hourEnd));
-                                    }
-                                }
-                            });
-                        }
-                    }
-
-                    // Extract loginControl
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> loginControl = (Map<String, Object>) config.get("loginControl");
-                    if (loginControl != null) {
-                        String filteringType = (String) loginControl.get("ipFilteringType");
-                        if (ipFilteringType == null && filteringType != null) {
-                            ipFilteringType = filteringType;
-                        }
-
-                        @SuppressWarnings("unchecked")
-                        List<String> allowedIps = (List<String>) loginControl.get("allowedIps");
-                        if (allowedIps != null) {
-                            allAllowedIps.addAll(allowedIps);
-                        }
-                    }
-
-                    // Extract commandSettings (still need to load CommandLists from DB)
-                    @SuppressWarnings("unchecked")
-                    List<Map<String, Object>> commandSettings = (List<Map<String, Object>>) config.get("commandSettings");
-                    if (commandSettings != null) {
-                        for (Map<String, Object> cmdSetting : commandSettings) {
-                            @SuppressWarnings("unchecked")
-                            List<Number> commandListIds = (List<Number>) cmdSetting.get("commandListIds");
-                            if (commandListIds != null) {
-                                // Load CommandList entities (these stay normalized)
-                                for (Number listId : commandListIds) {
-                                    CommandList cmdList = commandListRepository.findById(listId.longValue())
-                                            .orElse(null);
-                                    if (cmdList != null) {
-                                        Set<String> commands = cmdList.getItems().stream()
-                                                .map(CommandListItem::getCommandText)
-                                                .collect(Collectors.toSet());
-
-                                        if ("blacklist".equals(cmdList.getListType())) {
-                                            allBlacklistedCommands.addAll(commands);
-                                        } else if ("whitelist".equals(cmdList.getListType())) {
-                                            allWhitelistedCommands.addAll(commands);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                switch (typeCode) {
+                    case "commonSettings":
+                        aggregateCommonSettings(config, allProtocols, allDbms);
+                        break;
+                    case "allowedTime":
+                        aggregateAllowedTime(config, allTimeSlots);
+                        break;
+                    case "loginControl":
+                        aggregateLoginControl(config, allAllowedIps, ipFilteringType);
+                        break;
+                    case "commandSettings":
+                        aggregateCommandSettings(config, allBlacklistedCommands, allWhitelistedCommands);
+                        break;
                 }
             }
 
@@ -274,7 +195,7 @@ public class PolicyFactLoader {
             request.setWhitelistedCommands(allWhitelistedCommands);
             request.setAllowedTimeSlots(allTimeSlots);
             request.setAllowedIps(allAllowedIps);
-            request.setIpFilteringType(ipFilteringType);
+            request.setIpFilteringType(ipFilteringType[0]);
 
             // Continue debug logging
             System.out.println("Loaded Policies: " + policies.stream()
@@ -292,6 +213,126 @@ public class PolicyFactLoader {
         }
 
         return request;
+    }
+
+    /**
+     * Aggregate commonSettings from policy config
+     */
+    private void aggregateCommonSettings(Map<String, Object> config, 
+                                         Set<String> allProtocols, 
+                                         Set<String> allDbms) {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> commonSettings = (Map<String, Object>) config.get("commonSettings");
+        if (commonSettings != null) {
+            @SuppressWarnings("unchecked")
+            List<String> protocols = (List<String>) commonSettings.get("allowedProtocols");
+            if (protocols != null) {
+                allProtocols.addAll(protocols);
+            }
+
+            @SuppressWarnings("unchecked")
+            List<String> dbms = (List<String>) commonSettings.get("allowedDbms");
+            if (dbms != null) {
+                allDbms.addAll(dbms);
+            }
+        }
+    }
+
+    /**
+     * Aggregate allowedTime from policy config
+     */
+    private void aggregateAllowedTime(Map<String, Object> config, Set<TimeSlot> allTimeSlots) {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> allowedTime = (Map<String, Object>) config.get("allowedTime");
+        if (allowedTime != null) {
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> timeSlots = (List<Map<String, Object>>) allowedTime.get("timeSlots");
+            if (timeSlots != null) {
+                timeSlots.forEach(ts -> {
+                    Object dayOfWeekObj = ts.get("dayOfWeek");
+                    Object hourStartObj = ts.get("hourStart");
+                    Object hourEndObj = ts.get("hourEnd");
+                    if (dayOfWeekObj != null && hourStartObj != null && hourEndObj != null) {
+                        // Convert dayOfWeek to Integer (1=Monday, 7=Sunday)
+                        Integer dayOfWeek;
+                        if (dayOfWeekObj instanceof Integer) {
+                            dayOfWeek = (Integer) dayOfWeekObj;
+                        } else if (dayOfWeekObj instanceof Number) {
+                            dayOfWeek = ((Number) dayOfWeekObj).intValue();
+                        } else {
+                            // Handle string day names (MONDAY, TUESDAY, etc.)
+                            String dayStr = dayOfWeekObj.toString().toUpperCase();
+                            dayOfWeek = convertDayNameToInteger(dayStr);
+                        }
+
+                        Integer hourStart = hourStartObj instanceof Integer ?
+                            (Integer) hourStartObj : Integer.valueOf(hourStartObj.toString());
+                        Integer hourEnd = hourEndObj instanceof Integer ?
+                            (Integer) hourEndObj : Integer.valueOf(hourEndObj.toString());
+
+                        if (dayOfWeek != null) {
+                            allTimeSlots.add(new TimeSlot(dayOfWeek, hourStart, hourEnd));
+                        }
+                    }
+                });
+            }
+        }
+    }
+
+    /**
+     * Aggregate loginControl from policy config
+     */
+    private void aggregateLoginControl(Map<String, Object> config, 
+                                       Set<String> allAllowedIps, 
+                                       String[] ipFilteringType) {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> loginControl = (Map<String, Object>) config.get("loginControl");
+        if (loginControl != null) {
+            String filteringType = (String) loginControl.get("ipFilteringType");
+            if (ipFilteringType[0] == null && filteringType != null) {
+                ipFilteringType[0] = filteringType;
+            }
+
+            @SuppressWarnings("unchecked")
+            List<String> allowedIps = (List<String>) loginControl.get("allowedIps");
+            if (allowedIps != null) {
+                allAllowedIps.addAll(allowedIps);
+            }
+        }
+    }
+
+    /**
+     * Aggregate commandSettings from policy config
+     */
+    private void aggregateCommandSettings(Map<String, Object> config,
+                                          Set<String> allBlacklistedCommands,
+                                          Set<String> allWhitelistedCommands) {
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> commandSettings = (List<Map<String, Object>>) config.get("commandSettings");
+        if (commandSettings != null) {
+            for (Map<String, Object> cmdSetting : commandSettings) {
+                @SuppressWarnings("unchecked")
+                List<Number> commandListIds = (List<Number>) cmdSetting.get("commandListIds");
+                if (commandListIds != null) {
+                    // Load CommandList entities (these stay normalized)
+                    for (Number listId : commandListIds) {
+                        CommandList cmdList = commandListRepository.findById(listId.longValue())
+                                .orElse(null);
+                        if (cmdList != null) {
+                            Set<String> commands = cmdList.getItems().stream()
+                                    .map(CommandListItem::getCommandText)
+                                    .collect(Collectors.toSet());
+
+                            if ("blacklist".equals(cmdList.getListType())) {
+                                allBlacklistedCommands.addAll(commands);
+                            } else if ("whitelist".equals(cmdList.getListType())) {
+                                allWhitelistedCommands.addAll(commands);
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /**

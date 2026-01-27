@@ -22,6 +22,27 @@ public class EquipmentAccessController {
     }
 
     @Operation(
+            summary = "User ssh on their equipment (Linux Server) that has been assigned by admin",
+            description = "Evaluates if a user has SSH access to a specific equipment based on equipment policies and assignments"
+    )
+    @GetMapping("/ssh")
+    public ResponseEntity<EquipmentAccessResponseDTO> sshToTargetEquipment(
+            @RequestParam("username") String username,
+            @RequestParam("equipmentId") Long equipmentId,
+            @RequestParam(value = "clientIp", required = false) String clientIp
+    ) {
+        // Build minimal SSH access request DTO
+        EquipmentAccessRequestDTO request = new EquipmentAccessRequestDTO();
+        request.setUsername(username);
+        request.setEquipmentId(equipmentId);
+        request.setProtocol("SSH");
+        request.setClientIp(clientIp);
+
+        EquipmentAccessResponseDTO response = accessControlService.checkAccess(request);
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(
             summary = "Check equipment access",
             description = "Evaluates if a user has access to equipment based on policies"
     )

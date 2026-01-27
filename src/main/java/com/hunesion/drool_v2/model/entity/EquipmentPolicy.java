@@ -50,7 +50,16 @@ public class EquipmentPolicy {
     @JoinColumn(name = "equipment_basic_policy_id")
     private EquipmentPolicy equipmentBasicPolicy;
 
-    // NEW: JSONB field for all policy configuration
+    // Policy Type: Each policy handles only one type of configuration
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "policy_type_id", nullable = false)
+    private PolicyType policyType;
+
+    // JSONB field for policy configuration (contains ONLY the section for this policy type)
+    // For 'commonSettings' type: contains only commonSettings object
+    // For 'allowedTime' type: contains only allowedTime object
+    // For 'loginControl' type: contains only loginControl object
+    // For 'commandSettings' type: contains only commandSettings array
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "JSONB", name = "policy_config")
     private String policyConfig;
@@ -150,6 +159,14 @@ public class EquipmentPolicy {
 
     public void setEquipmentBasicPolicy(EquipmentPolicy equipmentBasicPolicy) {
         this.equipmentBasicPolicy = equipmentBasicPolicy;
+    }
+
+    public PolicyType getPolicyType() {
+        return policyType;
+    }
+
+    public void setPolicyType(PolicyType policyType) {
+        this.policyType = policyType;
     }
 
     public boolean isEnabled() {

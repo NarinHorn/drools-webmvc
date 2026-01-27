@@ -3,7 +3,7 @@ spring:
     name: drool_v2
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/abacdb
+    url: jdbc:postgresql://localhost:5433/abacdb
     username: postgres
     password: Rin25052001
     driver-class-name: org.postgresql.Driver

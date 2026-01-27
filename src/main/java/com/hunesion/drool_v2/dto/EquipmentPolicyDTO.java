@@ -31,14 +31,22 @@ public class EquipmentPolicyDTO {
     private boolean enabled = true;
     private Integer priority = 0;
 
+    // Policy Type: Each policy handles only one type
+    private Long policyTypeId;
+    private String policyTypeCode; // For convenience in API responses
+
     private PolicyCommonSettingsDTO commonSettings;
     private PolicyAllowedTimeDTO allowedTime;
     private List<PolicyCommandSettingsDTO> commandSettings;
     private PolicyLoginControlDTO loginControl;
     private List<Map<String, Object>> policies;
 
-    // Raw policyConfig - allows sending config directly as JSON object
-    // If provided, this takes precedence over individual settings (commonSettings, allowedTime, etc.)
+    // policyConfig: Contains ONLY the section for this policy's type
+    // For 'commonSettings' type: { "commonSettings": {...} }
+    // For 'allowedTime' type: { "allowedTime": {...} }
+    // For 'loginControl' type: { "loginControl": {...} }
+    // For 'commandSettings' type: { "commandSettings": [...] }
+    // If provided directly, must match the policy type
     private Map<String, Object> policyConfig;
 
     // NEW: Custom conditions (like AccessPolicy) - flexible fields from frontend
@@ -116,6 +124,22 @@ public class EquipmentPolicyDTO {
 
     public void setPriority(Integer priority) {
         this.priority = priority;
+    }
+
+    public Long getPolicyTypeId() {
+        return policyTypeId;
+    }
+
+    public void setPolicyTypeId(Long policyTypeId) {
+        this.policyTypeId = policyTypeId;
+    }
+
+    public String getPolicyTypeCode() {
+        return policyTypeCode;
+    }
+
+    public void setPolicyTypeCode(String policyTypeCode) {
+        this.policyTypeCode = policyTypeCode;
     }
 
     public PolicyCommonSettingsDTO getCommonSettings() {

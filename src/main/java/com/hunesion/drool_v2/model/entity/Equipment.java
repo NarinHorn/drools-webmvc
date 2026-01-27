@@ -67,6 +67,10 @@ public class Equipment {
     @JsonIgnore // Avoid circular reference in JSON responses
     private Set<User> users = new HashSet<>();
 
+    @ManyToMany(mappedBy = "equipment", fetch = FetchType.LAZY)
+    @JsonIgnore
+    private Set<EquipmentGroup> equipmentGroups = new HashSet<>();
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
@@ -195,6 +199,14 @@ public class Equipment {
 
     public void setUsers(Set<User> users) {
         this.users = users;
+    }
+
+    public Set<EquipmentGroup> getEquipmentGroups() {
+        return equipmentGroups;
+    }
+
+    public void setEquipmentGroups(Set<EquipmentGroup> equipmentGroups) {
+        this.equipmentGroups = equipmentGroups;
     }
 
     @Override

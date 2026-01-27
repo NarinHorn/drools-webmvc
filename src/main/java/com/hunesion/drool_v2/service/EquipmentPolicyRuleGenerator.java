@@ -53,10 +53,12 @@ public class EquipmentPolicyRuleGenerator {
 
     /**
      * Generate DRL for a single policy
+     * Each policy handles only one type of configuration
      */
     public String generatePolicyRule(EquipmentPolicy policy) {
         StringBuilder drl = new StringBuilder();
         String ruleName = sanitizeRuleName(policy.getPolicyName());
+        String typeCode = policy.getPolicyType().getTypeCode();
 
         drl.append("rule \"").append(ruleName).append("\"\n");
         drl.append("    salience ").append(policy.getPriority()).append("\n");
@@ -66,7 +68,7 @@ public class EquipmentPolicyRuleGenerator {
         // Check if policy is assigned
         drl.append("            isAssignedToPolicy(").append(policy.getId()).append(")\n");
 
-        // Build conditions based on policy settings (JSONB is the single source of truth)
+        // Build conditions based on policy type
         StringBuilder conditions = new StringBuilder();
 
         String policyConfigJson = policy.getPolicyConfig();
@@ -77,93 +79,27 @@ public class EquipmentPolicyRuleGenerator {
                 policyConfigJson
             );
 
-            // Generate from commonSettings
-            @SuppressWarnings("unchecked")
-            Map<String, Object> commonSettings = (Map<String, Object>) config.get("commonSettings");
-            if (commonSettings != null) {
-                @SuppressWarnings("unchecked")
-                List<String> protocols = (List<String>) commonSettings.get("allowedProtocols");
-                if (protocols != null && !protocols.isEmpty()) {
-                    String protocolCheck = protocols.stream()
-                            .map(p -> "hasProtocol(\"" + p + "\")")
-                            .collect(Collectors.joining(" || "));
-                    conditions.append("            , (").append(protocolCheck).append(")\n");
-                } else {
-                    // No allowedProtocols configured → only match requests without protocol
-                    conditions.append("            , protocol == null\n");
-                }
-
-                @SuppressWarnings("unchecked")
-                List<String> dbms = (List<String>) commonSettings.get("allowedDbms");
-                if (dbms != null && !dbms.isEmpty()) {
-                    String dbmsCheck = dbms.stream()
-                            .map(d -> "hasDbmsType(\"" + d + "\")")
-                            .collect(Collectors.joining(" || "));
-                    // dbmsType == null means request is not a DB request (e.g., SSH), so skip DBMS check
-                    conditions.append("            , (dbmsType == null || ").append(dbmsCheck).append(")\n");
-                }
-            } else {
-                // No commonSettings at all → only match requests without protocol
-                conditions.append("            , protocol == null\n");
+            // Generate conditions based on policy type
+            switch (typeCode) {
+                case "commonSettings":
+                    generateCommonSettingsConditions(conditions, config);
+                    break;
+                case "allowedTime":
+                    generateAllowedTimeConditions(conditions);
+                    break;
+                case "loginControl":
+                    generateLoginControlConditions(conditions, config);
+                    break;
+                case "commandSettings":
+                    generateCommandSettingsConditions(conditions, config);
+                    break;
+                default:
+                    // Unknown type - no conditions
+                    break;
             }
 
-            // Generate from allowedTime - ALWAYS require time check
-            // If no timeSlots defined, isWithinAllowedTime() will return false (deny access)
-            conditions.append("            , isWithinAllowedTime()\n");
-
-            // Generate from commandSettings
-            @SuppressWarnings("unchecked")
-            List<Map<String, Object>> commandSettings = (List<Map<String, Object>>) config.get("commandSettings");
-            if (commandSettings != null && !commandSettings.isEmpty()) {
-                for (Map<String, Object> cmdSetting : commandSettings) {
-                    String controlMethod = (String) cmdSetting.get("controlMethod");
-                    if ("blacklist".equals(controlMethod)) {
-                        // Always add comma since isAssignedToPolicy is already on previous line
-                        if (conditions.length() > 0) {
-                            conditions.append("            , !isCommandBlocked(command)\n");
-                        } else {
-                            conditions.append("            , !isCommandBlocked(command)\n");
-                        }
-                    }
-                }
-            }
-
-            // Generate from loginControl
-            @SuppressWarnings("unchecked")
-            Map<String, Object> loginControl = (Map<String, Object>) config.get("loginControl");
-            if (loginControl != null) {
-                String ipFilteringType = (String) loginControl.get("ipFilteringType");
-                if (ipFilteringType != null && !"no_restrictions".equals(ipFilteringType)) {
-                    // Always add comma since isAssignedToPolicy is already on previous line
-                    if (conditions.length() > 0) {
-                        conditions.append("            , isIpAllowed(clientIp)\n");
-                    } else {
-                        conditions.append("            , isIpAllowed(clientIp)\n");
-                    }
-                }
-            }
-
-            // Generate from customConditions (like AccessPolicy)
-            @SuppressWarnings("unchecked")
-            Map<String, Object> customConditions = (Map<String, Object>) config.get("customConditions");
-            if (customConditions != null) {
-                for (Map.Entry<String, Object> entry : customConditions.entrySet()) {
-                    String attribute = entry.getKey();
-                    @SuppressWarnings("unchecked")
-                    Map<String, String> condition = (Map<String, String>) entry.getValue();
-                    String operator = condition.get("operator");
-                    String value = condition.get("value");
-
-                    String conditionStr = buildConditionFromJson(attribute, operator, value);
-                    if (conditionStr != null) {
-                        // Always add comma since isAssignedToPolicy is already on previous line
-                        conditions.append("            , ").append(conditionStr).append("\n");
-                    }
-                }
-            }
-        } else {
-            // No policy config at all → only match requests without protocol
-            conditions.append("            , protocol == null\n");
+            // Always check customConditions if present (can be in any policy type)
+            generateCustomConditions(conditions, config);
         }
 
         drl.append(conditions);
@@ -179,11 +115,85 @@ public class EquipmentPolicyRuleGenerator {
         drl.append("end\n");
 
         // Log generated DRL for debugging
-        System.out.println("=== Generated DRL for policy: " + policy.getPolicyName() + " (ID: " + policy.getId() + ") ===");
+        System.out.println("=== Generated DRL for policy: " + policy.getPolicyName() + " (ID: " + policy.getId() + ", Type: " + typeCode + ") ===");
         System.out.println(drl.toString());
         System.out.println("=== End DRL ===\n");
 
         return drl.toString();
+    }
+
+    private void generateCommonSettingsConditions(StringBuilder conditions, Map<String, Object> config) {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> commonSettings = (Map<String, Object>) config.get("commonSettings");
+        if (commonSettings != null) {
+            @SuppressWarnings("unchecked")
+            List<String> protocols = (List<String>) commonSettings.get("allowedProtocols");
+            if (protocols != null && !protocols.isEmpty()) {
+                String protocolCheck = protocols.stream()
+                        .map(p -> "hasProtocol(\"" + p + "\")")
+                        .collect(Collectors.joining(" || "));
+                conditions.append("            , (").append(protocolCheck).append(")\n");
+            }
+
+            @SuppressWarnings("unchecked")
+            List<String> dbms = (List<String>) commonSettings.get("allowedDbms");
+            if (dbms != null && !dbms.isEmpty()) {
+                String dbmsCheck = dbms.stream()
+                        .map(d -> "hasDbmsType(\"" + d + "\")")
+                        .collect(Collectors.joining(" || "));
+                // dbmsType == null means request is not a DB request (e.g., SSH), so skip DBMS check
+                conditions.append("            , (dbmsType == null || ").append(dbmsCheck).append(")\n");
+            }
+        }
+    }
+
+    private void generateAllowedTimeConditions(StringBuilder conditions) {
+        // Always require time check
+        // If no timeSlots defined, isWithinAllowedTime() will return false (deny access)
+        conditions.append("            , isWithinAllowedTime()\n");
+    }
+
+    private void generateLoginControlConditions(StringBuilder conditions, Map<String, Object> config) {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> loginControl = (Map<String, Object>) config.get("loginControl");
+        if (loginControl != null) {
+            String ipFilteringType = (String) loginControl.get("ipFilteringType");
+            if (ipFilteringType != null && !"no_restrictions".equals(ipFilteringType)) {
+                conditions.append("            , isIpAllowed(clientIp)\n");
+            }
+        }
+    }
+
+    private void generateCommandSettingsConditions(StringBuilder conditions, Map<String, Object> config) {
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> commandSettings = (List<Map<String, Object>>) config.get("commandSettings");
+        if (commandSettings != null && !commandSettings.isEmpty()) {
+            for (Map<String, Object> cmdSetting : commandSettings) {
+                String controlMethod = (String) cmdSetting.get("controlMethod");
+                if ("blacklist".equals(controlMethod)) {
+                    conditions.append("            , !isCommandBlocked(command)\n");
+                }
+            }
+        }
+    }
+
+    private void generateCustomConditions(StringBuilder conditions, Map<String, Object> config) {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> customConditions = (Map<String, Object>) config.get("customConditions");
+        if (customConditions != null) {
+            for (Map.Entry<String, Object> entry : customConditions.entrySet()) {
+                String attribute = entry.getKey();
+                @SuppressWarnings("unchecked")
+                Map<String, String> condition = (Map<String, String>) entry.getValue();
+                String operator = condition.get("operator");
+                String value = condition.get("value");
+
+                String conditionStr = buildConditionFromJson(attribute, operator, value);
+                if (conditionStr != null) {
+                    conditions.append("            , ").append(conditionStr).append("\n");
+                }
+            }
+        }
     }
 
     private String sanitizeRuleName(String name) {

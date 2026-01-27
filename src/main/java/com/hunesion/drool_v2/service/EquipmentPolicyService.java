@@ -27,6 +27,7 @@ public class EquipmentPolicyService {
     private final DynamicRuleService dynamicRuleService;
     private final ObjectMapper objectMapper;
     private final PolicyConfigCache policyConfigCache;
+    private final PolicyTypeRepository policyTypeRepository;
 
     @Autowired
     public EquipmentPolicyService(
@@ -38,7 +39,8 @@ public class EquipmentPolicyService {
             CommandListRepository commandListRepository,
             DynamicRuleService dynamicRuleService,
             ObjectMapper objectMapper,
-            PolicyConfigCache policyConfigCache) {
+            PolicyConfigCache policyConfigCache,
+            PolicyTypeRepository policyTypeRepository) {
         this.policyRepository = policyRepository;
         this.userRepository = userRepository;
         this.groupRepository = groupRepository;
@@ -48,6 +50,7 @@ public class EquipmentPolicyService {
         this.dynamicRuleService = dynamicRuleService;
         this.objectMapper = objectMapper;
         this.policyConfigCache = policyConfigCache;
+        this.policyTypeRepository = policyTypeRepository;
     }
 
     public List<EquipmentPolicy> getAllPolicies() {
@@ -69,10 +72,18 @@ public class EquipmentPolicyService {
             throw new RuntimeException("Policy already exists: " + dto.getPolicyName());
         }
 
+        // Validate and get policy type
+        if (dto.getPolicyTypeId() == null) {
+            throw new RuntimeException("Policy type ID is required");
+        }
+        PolicyType policyType = policyTypeRepository.findById(dto.getPolicyTypeId())
+                .orElseThrow(() -> new RuntimeException("Policy type not found: " + dto.getPolicyTypeId()));
+
         EquipmentPolicy policy = convertDtoToEntity(dto);
+        policy.setPolicyType(policyType);
         
-        // Build policy_config JSON from DTO
-        String policyConfigJson = buildPolicyConfigJson(dto);
+        // Build policy_config JSON for this specific policy type
+        String policyConfigJson = buildPolicyConfigJsonForType(dto, policyType.getTypeCode());
         policy.setPolicyConfig(policyConfigJson);
         
         EquipmentPolicy saved = policyRepository.save(policy);
@@ -106,8 +117,16 @@ public class EquipmentPolicyService {
             existing.setPriority(dto.getPriority());
         }
 
-        // Build and update policy_config JSON
-        String policyConfigJson = buildPolicyConfigJson(dto);
+        // Update policy type if provided (optional - usually shouldn't change)
+        if (dto.getPolicyTypeId() != null && !dto.getPolicyTypeId().equals(existing.getPolicyType().getId())) {
+            PolicyType policyType = policyTypeRepository.findById(dto.getPolicyTypeId())
+                    .orElseThrow(() -> new RuntimeException("Policy type not found: " + dto.getPolicyTypeId()));
+            existing.setPolicyType(policyType);
+        }
+
+        // Build and update policy_config JSON for the policy type
+        String typeCode = existing.getPolicyType().getTypeCode();
+        String policyConfigJson = buildPolicyConfigJsonForType(dto, typeCode);
         existing.setPolicyConfig(policyConfigJson);
 
         EquipmentPolicy saved = policyRepository.save(existing);
@@ -170,51 +189,59 @@ public class EquipmentPolicyService {
     }
 
     /**
-     * Build policy_config JSON from DTO.
-     * If dto.getPolicyConfig() is provided, use it directly.
+     * Build policy_config JSON from DTO for a specific policy type.
+     * Only includes the section matching the policy type.
+     * If dto.getPolicyConfig() is provided, use it directly (must match the type).
      * Otherwise, build from individual DTO fields.
      */
-    private String buildPolicyConfigJson(EquipmentPolicyDTO dto) {
-        // If raw policyConfig is provided, use it directly (takes precedence)
+    private String buildPolicyConfigJsonForType(EquipmentPolicyDTO dto, String typeCode) {
+        Map<String, Object> policyConfig = new HashMap<>();
+
+        // If raw policyConfig is provided, validate and use it
         if (dto.getPolicyConfig() != null && !dto.getPolicyConfig().isEmpty()) {
-            try {
-                return objectMapper.writeValueAsString(dto.getPolicyConfig());
-            } catch (JsonProcessingException e) {
-                throw new RuntimeException("Failed to serialize raw policy config", e);
+            // Validate that the config contains the correct section for this type
+            if (!dto.getPolicyConfig().containsKey(typeCode)) {
+                throw new RuntimeException(
+                    "Policy config must contain '" + typeCode + "' section for policy type: " + typeCode
+                );
+            }
+            policyConfig = new HashMap<>(dto.getPolicyConfig());
+        } else {
+            // Build from individual DTO fields based on policy type
+            switch (typeCode) {
+                case "commonSettings":
+                    if (dto.getCommonSettings() != null) {
+                        policyConfig.put("commonSettings", convertCommonSettingsToMap(dto.getCommonSettings()));
+                    }
+                    break;
+                case "allowedTime":
+                    if (dto.getAllowedTime() != null) {
+                        policyConfig.put("allowedTime", convertAllowedTimeToMap(dto.getAllowedTime()));
+                    }
+                    break;
+                case "loginControl":
+                    if (dto.getLoginControl() != null) {
+                        policyConfig.put("loginControl", convertLoginControlToMap(dto.getLoginControl()));
+                    }
+                    break;
+                case "commandSettings":
+                    if (dto.getCommandSettings() != null) {
+                        policyConfig.put("commandSettings", dto.getCommandSettings().stream()
+                            .map(this::convertCommandSettingsToMap)
+                            .collect(Collectors.toList()));
+                    }
+                    break;
+                default:
+                    throw new RuntimeException("Unknown policy type: " + typeCode);
             }
         }
 
-        // Otherwise, build from individual DTO fields
-        Map<String, Object> policyConfig = new HashMap<>();
-
-        // Convert commonSettings
-        if (dto.getCommonSettings() != null) {
-            policyConfig.put("commonSettings", convertCommonSettingsToMap(dto.getCommonSettings()));
-        }
-
-        // Convert allowedTime
-        if (dto.getAllowedTime() != null) {
-            policyConfig.put("allowedTime", convertAllowedTimeToMap(dto.getAllowedTime()));
-        }
-
-        // Convert loginControl
-        if (dto.getLoginControl() != null) {
-            policyConfig.put("loginControl", convertLoginControlToMap(dto.getLoginControl()));
-        }
-
-        // Convert commandSettings
-        if (dto.getCommandSettings() != null) {
-            policyConfig.put("commandSettings", dto.getCommandSettings().stream()
-                .map(this::convertCommandSettingsToMap)
-                .collect(Collectors.toList()));
-        }
-
-        // Add customConditions if provided
+        // Add customConditions if provided (can be in any policy type)
         if (dto.getCustomConditions() != null) {
             policyConfig.put("customConditions", dto.getCustomConditions());
         }
 
-        // Add customMetadata if provided
+        // Add customMetadata if provided (can be in any policy type)
         if (dto.getCustomMetadata() != null) {
             policyConfig.put("customMetadata", dto.getCustomMetadata());
         }
