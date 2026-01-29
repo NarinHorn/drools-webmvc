@@ -30,4 +30,20 @@ public interface EquipmentPolicyRepository extends JpaRepository<EquipmentPolicy
     @Query("SELECT DISTINCT ep FROM EquipmentPolicy ep " +
             "JOIN ep.roleAssignments ra WHERE ra.role.id = :roleId AND ep.enabled = true")
     List<EquipmentPolicy> findAssignedToRole(@Param("roleId") Long roleId);
+
+    @Query("SELECT DISTINCT ep FROM EquipmentPolicy ep " +
+            "JOIN ep.userTypeAssignments uta WHERE uta.userType.id = :userTypeId AND ep.enabled = true")
+    List<EquipmentPolicy> findAssignedToUserType(@Param("userTypeId") Long userTypeId);
+
+    @Query("SELECT DISTINCT ep FROM EquipmentPolicy ep " +
+            "JOIN ep.accountTypeAssignments ata WHERE ata.accountType.id = :accountTypeId AND ep.enabled = true")
+    List<EquipmentPolicy> findAssignedToAccountType(@Param("accountTypeId") Long accountTypeId);
+
+    @Query("SELECT DISTINCT ep FROM EquipmentPolicy ep " +
+            "JOIN ep.userTypeAssignments uta WHERE uta.userType.typeCode = :typeCode AND ep.enabled = true")
+    List<EquipmentPolicy> findAssignedToUserTypeCode(@Param("typeCode") String typeCode);
+
+    @Query("SELECT DISTINCT ep FROM EquipmentPolicy ep " +
+            "JOIN ep.accountTypeAssignments ata WHERE ata.accountType.typeCode = :typeCode AND ep.enabled = true")
+    List<EquipmentPolicy> findAssignedToAccountTypeCode(@Param("typeCode") String typeCode);
 }

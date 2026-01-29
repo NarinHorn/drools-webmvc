@@ -71,6 +71,10 @@ public class Equipment {
     @JsonIgnore
     private Set<EquipmentGroup> equipmentGroups = new HashSet<>();
 
+    @OneToMany(mappedBy = "equipment", fetch = FetchType.LAZY, cascade = CascadeType.ALL)
+    @JsonIgnore
+    private Set<Account> accounts = new HashSet<>();
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
@@ -207,6 +211,14 @@ public class Equipment {
 
     public void setEquipmentGroups(Set<EquipmentGroup> equipmentGroups) {
         this.equipmentGroups = equipmentGroups;
+    }
+
+    public Set<Account> getAccounts() {
+        return accounts;
+    }
+    
+    public void setAccounts(Set<Account> accounts) {
+        this.accounts = accounts;
     }
 
     @Override

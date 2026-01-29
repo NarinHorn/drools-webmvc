@@ -187,7 +187,11 @@ INSERT INTO policy_types (
 ) VALUES
       ('equipmentLogin',    'Equipment Login Method', 'Default login method for equipment (auto)',     true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
       ('sessionTimeout',    'Session Timeout',        'Default session timeout configuration (seconds)',        true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-      ('concurrentSession', 'Concurrent Session',     'Default concurrent session limits per equipment / user', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      ('concurrentSession', 'Concurrent Session',     'Default concurrent session limits per equipment / user', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+      ('loginControl',      'Login Control',          'User login control settings (MFA, IP filtering, account lock)', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+      ('commonSettings',    'Common Settings',        'Common policy settings (protocols, DBMS, sessions)',     true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+      ('allowedTime',       'Allowed Time',           'Time-based access restrictions (days, hours)',           true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+      ('commandSettings',   'Command Settings',       'Command blocking/whitelisting settings',                 true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 ON CONFLICT (type_code) DO NOTHING;
 
 
@@ -354,3 +358,324 @@ FROM policy_groups pg
     )
 WHERE pg.group_name = 'Basic Policy Group'
 ON CONFLICT (policy_group_id, policy_id) DO NOTHING;
+
+-- ============================================
+-- 13. USER TYPES (Phase 1)
+-- ============================================
+INSERT INTO user_types (type_code, type_name, description, is_active) VALUES
+    ('SUPER_ADMIN', 'Super Admin User', 'Super administrator with highest privileges', TRUE),
+    ('MIDDLE_MANAGER', 'Middle Manager', 'Department or team manager', TRUE),
+    ('REGULAR_USER', 'Regular User', 'Standard user with normal access', TRUE),
+    ('OCCASIONAL_USER', 'Occasional User', 'User with limited or occasional access', TRUE)
+ON CONFLICT (type_code) DO NOTHING;
+
+-- ============================================
+-- 14. UPDATE EXISTING USERS WITH USER TYPES (Phase 1)
+-- ============================================
+UPDATE users u
+SET user_type_id = (
+    SELECT id FROM user_types WHERE type_code = 
+        CASE 
+            WHEN u.username = 'admin' THEN 'SUPER_ADMIN'
+            WHEN u.username = 'manager' THEN 'MIDDLE_MANAGER'
+            WHEN u.level >= 5 THEN 'REGULAR_USER'
+            ELSE 'OCCASIONAL_USER'
+        END
+    LIMIT 1
+)
+WHERE user_type_id IS NULL;
+
+-- ============================================
+-- 15. ACCOUNT TYPES (Phase 1)
+-- ============================================
+INSERT INTO account_types (type_code, type_name, description, is_active) VALUES
+    ('COLLECTION', 'Collection Account', 'Account used for collecting data or resources', TRUE),
+    ('PRIVILEGED', 'Privileged Account', 'Account with elevated privileges', TRUE),
+    ('PERSONAL', 'Personal Account', 'Personal user account', TRUE),
+    ('SOLUTION', 'Solution Account', 'Account for specific solution or service', TRUE),
+    ('PUBLIC', 'Public Account', 'Public or shared account', TRUE)
+ON CONFLICT (type_code) DO NOTHING;
+
+-- ============================================
+-- 16. SAMPLE ACCOUNTS FOR EQUIPMENT (Phase 1)
+-- ============================================
+-- Root account for Linux Production Server
+INSERT INTO accounts (account_name, account_type_id, equipment_id, username, password, description, is_active)
+SELECT 
+    'root',
+    (SELECT id FROM account_types WHERE type_code = 'PRIVILEGED' LIMIT 1),
+    e.id,
+    'root',
+    'password123',
+    'Root account for Linux server',
+    TRUE
+FROM equipment e
+WHERE e.device_type = 'LINUX_SERVER' AND e.device_name = 'Linux Production Server'
+ON CONFLICT (account_name, equipment_id) DO NOTHING;
+
+-- Web root account for Linux Production Server
+INSERT INTO accounts (account_name, account_type_id, equipment_id, username, password, description, is_active)
+SELECT 
+    'web_root',
+    (SELECT id FROM account_types WHERE type_code = 'PRIVILEGED' LIMIT 1),
+    e.id,
+    'webadmin',
+    'password123',
+    'Web root account',
+    TRUE
+FROM equipment e
+WHERE e.device_type = 'LINUX_SERVER' AND e.device_name = 'Linux Production Server'
+ON CONFLICT (account_name, equipment_id) DO NOTHING;
+
+-- Web user account for Linux Production Server
+INSERT INTO accounts (account_name, account_type_id, equipment_id, username, password, description, is_active)
+SELECT 
+    'web_user',
+    (SELECT id FROM account_types WHERE type_code = 'PERSONAL' LIMIT 1),
+    e.id,
+    'webuser',
+    'password123',
+    'Web user account',
+    TRUE
+FROM equipment e
+WHERE e.device_type = 'LINUX_SERVER' AND e.device_name = 'Linux Production Server'
+ON CONFLICT (account_name, equipment_id) DO NOTHING;
+
+-- ============================================
+-- 17. WORK GROUPS (Phase 2)
+-- ============================================
+INSERT INTO work_groups (work_group_name, description, enabled, created_at, updated_at) VALUES
+    ('Web Development Team', 'Web development project workspace with Linux servers', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    ('Database Administration', 'Database administration workspace', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    ('IT Operations', 'General IT operations workspace', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT (work_group_name) DO NOTHING;
+
+-- ============================================
+-- 18. WORK GROUP USERS (Phase 2)
+-- ============================================
+-- Web Development Team: admin, bob
+INSERT INTO work_group_users (work_group_id, user_id)
+SELECT wg.id, u.id
+FROM work_groups wg, users u
+WHERE wg.work_group_name = 'Web Development Team'
+  AND u.username IN ('admin', 'bob')
+ON CONFLICT (work_group_id, user_id) DO NOTHING;
+
+-- Database Administration: admin, alice
+INSERT INTO work_group_users (work_group_id, user_id)
+SELECT wg.id, u.id
+FROM work_groups wg, users u
+WHERE wg.work_group_name = 'Database Administration'
+  AND u.username IN ('admin', 'alice')
+ON CONFLICT (work_group_id, user_id) DO NOTHING;
+
+-- IT Operations: admin, manager, bob
+INSERT INTO work_group_users (work_group_id, user_id)
+SELECT wg.id, u.id
+FROM work_groups wg, users u
+WHERE wg.work_group_name = 'IT Operations'
+  AND u.username IN ('admin', 'manager', 'bob')
+ON CONFLICT (work_group_id, user_id) DO NOTHING;
+
+-- ============================================
+-- 19. WORK GROUP EQUIPMENT (Phase 2)
+-- ============================================
+-- Web Development Team: Linux Production Server
+INSERT INTO work_group_equipment (work_group_id, equipment_id)
+SELECT wg.id, e.id
+FROM work_groups wg, equipment e
+WHERE wg.work_group_name = 'Web Development Team'
+  AND e.device_name = 'Linux Production Server'
+ON CONFLICT (work_group_id, equipment_id) DO NOTHING;
+
+-- Database Administration: PostgreSQL Database, MySQL Database
+INSERT INTO work_group_equipment (work_group_id, equipment_id)
+SELECT wg.id, e.id
+FROM work_groups wg, equipment e
+WHERE wg.work_group_name = 'Database Administration'
+  AND e.device_name IN ('PostgreSQL Database', 'MySQL Database')
+ON CONFLICT (work_group_id, equipment_id) DO NOTHING;
+
+-- IT Operations: Linux Production Server, Windows Server
+INSERT INTO work_group_equipment (work_group_id, equipment_id)
+SELECT wg.id, e.id
+FROM work_groups wg, equipment e
+WHERE wg.work_group_name = 'IT Operations'
+  AND e.device_name IN ('Linux Production Server', 'Windows Server')
+ON CONFLICT (work_group_id, equipment_id) DO NOTHING;
+
+-- ============================================
+-- 20. WORK GROUP ACCOUNTS (Phase 2)
+-- ============================================
+-- Web Development Team: root, web_root, web_user accounts on Linux Production Server
+INSERT INTO work_group_accounts (work_group_id, account_id)
+SELECT wg.id, a.id
+FROM work_groups wg, accounts a, equipment e
+WHERE wg.work_group_name = 'Web Development Team'
+  AND a.equipment_id = e.id
+  AND e.device_name = 'Linux Production Server'
+ON CONFLICT (work_group_id, account_id) DO NOTHING;
+
+-- ============================================
+-- 21. WORK GROUP POLICIES (Phase 2 - Policy Catalog)
+-- ============================================
+-- Assign default policies to Web Development Team
+INSERT INTO work_group_policies (work_group_id, policy_id)
+SELECT wg.id, ep.id
+FROM work_groups wg, equipment_policies ep
+WHERE wg.work_group_name = 'Web Development Team'
+  AND ep.policy_name IN ('Default Equipment Login Method', 'Default Session Timeout', 'Default Concurrent Session Limit')
+ON CONFLICT (work_group_id, policy_id) DO NOTHING;
+
+-- Assign default policies to Database Administration
+INSERT INTO work_group_policies (work_group_id, policy_id)
+SELECT wg.id, ep.id
+FROM work_groups wg, equipment_policies ep
+WHERE wg.work_group_name = 'Database Administration'
+  AND ep.policy_name IN ('Default Equipment Login Method', 'Default Session Timeout')
+ON CONFLICT (work_group_id, policy_id) DO NOTHING;
+
+-- Assign default policies to IT Operations
+INSERT INTO work_group_policies (work_group_id, policy_id)
+SELECT wg.id, ep.id
+FROM work_groups wg, equipment_policies ep
+WHERE wg.work_group_name = 'IT Operations'
+  AND ep.policy_name IN ('Default Equipment Login Method', 'Default Session Timeout', 'Default Concurrent Session Limit')
+ON CONFLICT (work_group_id, policy_id) DO NOTHING;
+
+
+-- ============================================
+-- 22. USER TYPE BASED POLICIES (Phase 3)
+-- ============================================
+-- Enhanced login policy for Super Admin users (credential + MFA with OTP)
+INSERT INTO equipment_policies (
+    policy_name,
+    description,
+    policy_classification,
+    policy_application,
+    policy_type_id,
+    policy_config,
+    enabled,
+    priority,
+    created_at,
+    updated_at
+) SELECT
+    'Super Admin Enhanced Login',
+    'Enhanced login security for super admin users: credential + MFA (OTP)',
+    'common',
+    'apply',
+    pt.id,
+    '{"loginControl": {"loginMethod": "credential_mfa", "mfaType": "otp", "ipFilteringType": "no_restrictions", "allowedIps": [], "twoFactorType": "otp", "accountLockEnabled": true, "maxFailureAttempts": 3, "lockoutDurationMinutes": 30}}',
+    true,
+    200,
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+FROM policy_types pt
+WHERE pt.type_code = 'loginControl'
+ON CONFLICT (policy_name) DO NOTHING;
+
+-- Standard login policy for Normal User (credential + MFA with email)
+INSERT INTO equipment_policies (
+    policy_name,
+    description,
+    policy_classification,
+    policy_application,
+    policy_type_id,
+    policy_config,
+    enabled,
+    priority,
+    created_at,
+    updated_at
+) SELECT
+    'Normal User Standard Login',
+    'Standard login for normal users: credential + MFA (email)',
+    'common',
+    'apply',
+    pt.id,
+    '{"loginControl": {"loginMethod": "credential_mfa", "mfaType": "email", "ipFilteringType": "no_restrictions", "allowedIps": [], "twoFactorType": "email", "accountLockEnabled": true, "maxFailureAttempts": 5, "lockoutDurationMinutes": 15}}',
+    true,
+    100,
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+FROM policy_types pt
+WHERE pt.type_code = 'loginControl'
+ON CONFLICT (policy_name) DO NOTHING;
+
+
+-- ============================================
+-- 23. ACCOUNT TYPE BASED POLICIES (Phase 3)
+-- ============================================
+-- Strict session policy for Privileged accounts
+INSERT INTO equipment_policies (
+    policy_name,
+    description,
+    policy_classification,
+    policy_application,
+    policy_type_id,
+    policy_config,
+    enabled,
+    priority,
+    created_at,
+    updated_at
+) SELECT
+    'Privileged Account Strict Session',
+    'Strict session limits for privileged accounts: shorter timeout, fewer concurrent sessions',
+    'common',
+    'apply',
+    pt.id,
+    '{"sessionTimeout": {"timeoutMinutes": 30, "idleTimeMinutes": 10, "warningBeforeMinutes": 5}}',
+    true,
+    150,
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+FROM policy_types pt
+WHERE pt.type_code = 'sessionTimeout'
+ON CONFLICT (policy_name) DO NOTHING;
+
+
+-- ============================================
+-- 24. POLICY USER TYPE ASSIGNMENTS (Phase 3)
+-- ============================================
+-- Assign "Super Admin Enhanced Login" to SUPER_ADMIN user type
+INSERT INTO policy_user_type_assignments (policy_id, user_type_id)
+SELECT ep.id, ut.id
+FROM equipment_policies ep, user_types ut
+WHERE ep.policy_name = 'Super Admin Enhanced Login'
+  AND ut.type_code = 'SUPER_ADMIN'
+ON CONFLICT (policy_id, user_type_id) DO NOTHING;
+
+-- Assign "Normal User Standard Login" to NORMAL_USER user type
+INSERT INTO policy_user_type_assignments (policy_id, user_type_id)
+SELECT ep.id, ut.id
+FROM equipment_policies ep, user_types ut
+WHERE ep.policy_name = 'Normal User Standard Login'
+  AND ut.type_code = 'NORMAL_USER'
+ON CONFLICT (policy_id, user_type_id) DO NOTHING;
+
+
+-- ============================================
+-- 25. POLICY ACCOUNT TYPE ASSIGNMENTS (Phase 3)
+-- ============================================
+-- Assign "Privileged Account Strict Session" to PRIVILEGED account type
+INSERT INTO policy_account_type_assignments (policy_id, account_type_id)
+SELECT ep.id, at.id
+FROM equipment_policies ep, account_types at
+WHERE ep.policy_name = 'Privileged Account Strict Session'
+  AND at.type_code = 'PRIVILEGED'
+ON CONFLICT (policy_id, account_type_id) DO NOTHING;
+
+
+-- ============================================
+-- 26. UPDATE USERS WITH USER TYPES (Phase 3)
+-- ============================================
+-- Set admin as SUPER_ADMIN
+UPDATE users SET user_type_id = (SELECT id FROM user_types WHERE type_code = 'SUPER_ADMIN')
+WHERE username = 'admin' AND user_type_id IS NULL;
+
+-- Set manager as NORMAL_USER
+UPDATE users SET user_type_id = (SELECT id FROM user_types WHERE type_code = 'NORMAL_USER')
+WHERE username = 'manager' AND user_type_id IS NULL;
+
+-- Set other users as NORMAL_USER
+UPDATE users SET user_type_id = (SELECT id FROM user_types WHERE type_code = 'NORMAL_USER')
+WHERE username IN ('john', 'jane', 'bob', 'alice') AND user_type_id IS NULL;

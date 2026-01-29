@@ -1,6 +1,7 @@
 package com.hunesion.drool_v2.model.entity;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import jakarta.persistence.*;
@@ -18,6 +19,7 @@ import java.util.stream.Collectors;
     "email",
     "department",
     "level",
+    "userType",
     "active",
     "roles",
     "attributes",
@@ -41,6 +43,11 @@ public class User {
     private String department;
 
     private Integer level;
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "user_type_id")
+    @JsonIgnoreProperties({"users"}) // Avoid circular reference
+    private UserType userType;
 
     private boolean active = true;
 
@@ -148,6 +155,18 @@ public class User {
 
     public void setLevel(Integer level) {
         this.level = level;
+    }
+
+    public UserType getUserType() {
+        return userType;
+    }
+    
+    public void setUserType(UserType userType) {
+        this.userType = userType;
+    }
+    
+    public String getUserTypeCode() {
+        return userType != null ? userType.getTypeCode() : null;
     }
 
     public boolean isActive() {

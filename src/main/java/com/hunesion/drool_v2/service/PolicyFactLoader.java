@@ -24,6 +24,9 @@ public class PolicyFactLoader {
     private final CommandListRepository commandListRepository;
     private final PolicyConfigCache policyConfigCache;
     private final PolicyGroupRepository policyGroupRepository;
+    private final UserTypeRepository userTypeRepository;
+    private final AccountRepository accountRepository;
+    private final WorkGroupRepository workGroupRepository;
 
     @Autowired
     public PolicyFactLoader(
@@ -32,13 +35,19 @@ public class PolicyFactLoader {
             EquipmentRepository equipmentRepository,
             CommandListRepository commandListRepository,
             PolicyConfigCache policyConfigCache,
-            PolicyGroupRepository policyGroupRepository) {
+            PolicyGroupRepository policyGroupRepository,
+            UserTypeRepository userTypeRepository,
+            AccountRepository accountRepository,
+            WorkGroupRepository workGroupRepository) {
         this.policyRepository = policyRepository;
         this.userRepository = userRepository;
         this.equipmentRepository = equipmentRepository;
         this.commandListRepository = commandListRepository;
         this.policyConfigCache = policyConfigCache;
         this.policyGroupRepository = policyGroupRepository;
+        this.userTypeRepository = userTypeRepository;
+        this.accountRepository = accountRepository;
+        this.workGroupRepository = workGroupRepository;
     }
 
     /**
@@ -58,6 +67,12 @@ public class PolicyFactLoader {
         request.setUserRoles(user.getRoleNames());
         request.setUserGroups(user.getGroupNames());
 
+        // Set user type code for policy evaluation
+        if (user.getUserType() != null) {
+            request.setAttribute("userTypeCode", user.getUserType().getTypeCode());
+            System.out.println("User Type: " + user.getUserType().getTypeCode());
+        }
+
         // Load equipment data
         if (equipmentId != null) {
             Equipment equipment = equipmentRepository.findById(equipmentId)
@@ -73,7 +88,17 @@ public class PolicyFactLoader {
                 request.setAttribute("hostName", equipment.getHostName());
                 request.setAttribute("ipAddress", equipment.getIpAddress());
                 request.setAttribute("protocol", equipment.getProtocol());
-                request.setAttribute("port", equipment.getPort());
+                request.setAttribute("port", equipment.getPort() != null ? equipment.getPort().toString() : null);
+                
+                // Load accounts for this equipment and set account type codes
+                List<Account> equipmentAccounts = accountRepository.findByEquipmentIdAndActiveTrue(equipmentId);
+                if (!equipmentAccounts.isEmpty()) {
+                    Set<String> accountTypeCodes = equipmentAccounts.stream()
+                            .map(acc -> acc.getAccountType().getTypeCode())
+                            .collect(Collectors.toSet());
+                    request.setAttribute("equipmentAccountTypeCodes", accountTypeCodes);
+                    System.out.println("Equipment Account Types: " + accountTypeCodes);
+                }
             }
         }
 
@@ -98,6 +123,13 @@ public class PolicyFactLoader {
             System.out.println("Policies assigned to user's roles: " + rolePolicies);
             rolePolicies.forEach(p -> policyIds.add(p.getId()));
         });
+
+        // ========== PHASE 3: Policies assigned to user's UserType ==========
+        if (user.getUserType() != null) {
+            List<EquipmentPolicy> userTypePolicies = policyRepository.findAssignedToUserType(user.getUserType().getId());
+            userTypePolicies.forEach(p -> policyIds.add(p.getId()));
+            System.out.println("Policies assigned to user's UserType (" + user.getUserType().getTypeCode() + "): " + userTypePolicies);
+        }
 
         // Policies from PolicyGroups assigned to user
         List<PolicyGroup> userPolicyGroups = policyGroupRepository.findAssignedToUser(user.getId());
@@ -130,6 +162,62 @@ public class PolicyFactLoader {
             List<EquipmentPolicy> equipmentPolicies = policyRepository.findAssignedToEquipment(equipmentId);
             System.out.println("policies assigned to equipment: " + equipmentPolicies);
             equipmentPolicies.forEach(p -> policyIds.add(p.getId()));
+        }
+
+        // ========== PHASE 3: Policies assigned to AccountTypes ==========
+        // Load policies based on account types available on the equipment
+        if (equipmentId != null) {
+            List<Account> equipmentAccounts = accountRepository.findByEquipmentIdAndActiveTrue(equipmentId);
+            Set<Long> processedAccountTypeIds = new HashSet<>();
+            
+            for (Account account : equipmentAccounts) {
+                if (account.getAccountType() != null) {
+                    Long accountTypeId = account.getAccountType().getId();
+                    // Avoid duplicate queries for the same account type
+                    if (!processedAccountTypeIds.contains(accountTypeId)) {
+                        processedAccountTypeIds.add(accountTypeId);
+                        List<EquipmentPolicy> accountTypePolicies = policyRepository.findAssignedToAccountType(accountTypeId);
+                        accountTypePolicies.forEach(p -> policyIds.add(p.getId()));
+                        System.out.println("Policies assigned to AccountType (" + account.getAccountType().getTypeCode() + "): " + accountTypePolicies);
+                    }
+                }
+            }
+        }
+
+        // ========== WORK GROUP POLICIES (Phase 2) ==========
+        // Find work groups where the user AND equipment are both members
+        // This implements the "project/workspace" concept where users can only access
+        // equipment within the same work group, and the work group's policy catalog applies
+        if (equipmentId != null) {
+            List<WorkGroup> userEquipmentWorkGroups = workGroupRepository.findByUserIdAndEquipmentId(user.getId(), equipmentId);
+            if (!userEquipmentWorkGroups.isEmpty()) {
+                System.out.println("Work Groups containing both user and equipment: " + userEquipmentWorkGroups.stream()
+                        .map(wg -> wg.getWorkGroupName() + "(ID:" + wg.getId() + ")")
+                        .collect(Collectors.joining(", ")));
+                
+                // Add policies from work group catalogs
+                for (WorkGroup workGroup : userEquipmentWorkGroups) {
+                    Set<EquipmentPolicy> workGroupPolicies = workGroup.getPolicies();
+                    if (workGroupPolicies != null && !workGroupPolicies.isEmpty()) {
+                        workGroupPolicies.stream()
+                                .filter(EquipmentPolicy::isEnabled)
+                                .forEach(p -> policyIds.add(p.getId()));
+                        System.out.println("Policies from WorkGroup '" + workGroup.getWorkGroupName() + "': " + 
+                                workGroupPolicies.stream()
+                                        .filter(EquipmentPolicy::isEnabled)
+                                        .map(p -> p.getPolicyName() + "(ID:" + p.getId() + ")")
+                                        .collect(Collectors.joining(", ")));
+                    }
+                }
+                
+                // Set work group names as attribute for potential rule conditions
+                Set<String> workGroupNames = userEquipmentWorkGroups.stream()
+                        .map(WorkGroup::getWorkGroupName)
+                        .collect(Collectors.toSet());
+                request.setAttribute("workGroupNames", workGroupNames);
+            } else {
+                System.out.println("No work groups contain both user '" + username + "' and equipment ID " + equipmentId);
+            }
         }
 
         request.setAssignedPolicyIds(policyIds);

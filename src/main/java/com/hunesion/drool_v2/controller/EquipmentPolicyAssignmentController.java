@@ -269,4 +269,126 @@ public class EquipmentPolicyAssignmentController {
         response.put("roleId", roleId.toString());
         return ResponseEntity.ok(response);
     }
+
+    // ========== USER TYPE ASSIGNMENTS (Phase 3) ==========
+
+    @Operation(summary = "Get user type assignments", 
+               description = "Get all user types assigned to this policy")
+    @GetMapping("/user-types")
+    public ResponseEntity<List<UserType>> getUserTypeAssignments(@PathVariable Long policyId) {
+        return ResponseEntity.ok(assignmentService.getUserTypeAssignments(policyId));
+    }
+
+    @Operation(summary = "Add user types to policy", 
+               description = "Assign policy to multiple user types (e.g., SUPER_ADMIN, NORMAL_USER)")
+    @PostMapping("/user-types")
+    public ResponseEntity<Map<String, Object>> addUserTypeAssignments(
+            @PathVariable Long policyId,
+            @RequestBody Set<Long> userTypeIds) {
+        assignmentService.addUserTypeAssignments(policyId, userTypeIds);
+        Map<String, Object> response = new HashMap<>();
+        response.put("message", "User types assigned successfully");
+        response.put("count", userTypeIds.size());
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(summary = "Replace user type assignments", 
+               description = "Replace all user type assignments with new ones")
+    @PutMapping("/user-types")
+    public ResponseEntity<Map<String, Object>> replaceUserTypeAssignments(
+            @PathVariable Long policyId,
+            @RequestBody Set<Long> userTypeIds) {
+        assignmentService.replaceUserTypeAssignments(policyId, userTypeIds);
+        Map<String, Object> response = new HashMap<>();
+        response.put("message", "User type assignments replaced successfully");
+        response.put("count", userTypeIds.size());
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(summary = "Remove user types from policy", 
+               description = "Remove multiple user types from policy")
+    @DeleteMapping("/user-types")
+    public ResponseEntity<Map<String, Object>> removeUserTypeAssignments(
+            @PathVariable Long policyId,
+            @RequestBody Set<Long> userTypeIds) {
+        assignmentService.removeUserTypeAssignments(policyId, userTypeIds);
+        Map<String, Object> response = new HashMap<>();
+        response.put("message", "User types removed successfully");
+        response.put("count", userTypeIds.size());
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(summary = "Remove single user type from policy", 
+               description = "Remove a specific user type from policy")
+    @DeleteMapping("/user-types/{userTypeId}")
+    public ResponseEntity<Map<String, String>> removeUserTypeAssignment(
+            @PathVariable Long policyId,
+            @PathVariable Long userTypeId) {
+        assignmentService.removeUserTypeAssignment(policyId, userTypeId);
+        Map<String, String> response = new HashMap<>();
+        response.put("message", "User type removed successfully");
+        response.put("userTypeId", userTypeId.toString());
+        return ResponseEntity.ok(response);
+    }
+
+    // ========== ACCOUNT TYPE ASSIGNMENTS (Phase 3) ==========
+
+    @Operation(summary = "Get account type assignments", 
+               description = "Get all account types assigned to this policy")
+    @GetMapping("/account-types")
+    public ResponseEntity<List<AccountType>> getAccountTypeAssignments(@PathVariable Long policyId) {
+        return ResponseEntity.ok(assignmentService.getAccountTypeAssignments(policyId));
+    }
+
+    @Operation(summary = "Add account types to policy", 
+               description = "Assign policy to multiple account types (e.g., PRIVILEGED, SERVICE)")
+    @PostMapping("/account-types")
+    public ResponseEntity<Map<String, Object>> addAccountTypeAssignments(
+            @PathVariable Long policyId,
+            @RequestBody Set<Long> accountTypeIds) {
+        assignmentService.addAccountTypeAssignments(policyId, accountTypeIds);
+        Map<String, Object> response = new HashMap<>();
+        response.put("message", "Account types assigned successfully");
+        response.put("count", accountTypeIds.size());
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(summary = "Replace account type assignments", 
+               description = "Replace all account type assignments with new ones")
+    @PutMapping("/account-types")
+    public ResponseEntity<Map<String, Object>> replaceAccountTypeAssignments(
+            @PathVariable Long policyId,
+            @RequestBody Set<Long> accountTypeIds) {
+        assignmentService.replaceAccountTypeAssignments(policyId, accountTypeIds);
+        Map<String, Object> response = new HashMap<>();
+        response.put("message", "Account type assignments replaced successfully");
+        response.put("count", accountTypeIds.size());
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(summary = "Remove account types from policy", 
+               description = "Remove multiple account types from policy")
+    @DeleteMapping("/account-types")
+    public ResponseEntity<Map<String, Object>> removeAccountTypeAssignments(
+            @PathVariable Long policyId,
+            @RequestBody Set<Long> accountTypeIds) {
+        assignmentService.removeAccountTypeAssignments(policyId, accountTypeIds);
+        Map<String, Object> response = new HashMap<>();
+        response.put("message", "Account types removed successfully");
+        response.put("count", accountTypeIds.size());
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(summary = "Remove single account type from policy", 
+               description = "Remove a specific account type from policy")
+    @DeleteMapping("/account-types/{accountTypeId}")
+    public ResponseEntity<Map<String, String>> removeAccountTypeAssignment(
+            @PathVariable Long policyId,
+            @PathVariable Long accountTypeId) {
+        assignmentService.removeAccountTypeAssignment(policyId, accountTypeId);
+        Map<String, String> response = new HashMap<>();
+        response.put("message", "Account type removed successfully");
+        response.put("accountTypeId", accountTypeId.toString());
+        return ResponseEntity.ok(response);
+    }
 }

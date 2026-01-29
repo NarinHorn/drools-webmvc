@@ -98,6 +98,12 @@ public class EquipmentPolicy {
     @OneToMany(mappedBy = "policy", cascade = CascadeType.ALL, orphanRemoval = true)
     private Set<PolicyRoleAssignment> roleAssignments = new HashSet<>();
 
+    @OneToMany(mappedBy = "policy", cascade = CascadeType.ALL, orphanRemoval = true)
+    private Set<PolicyUserTypeAssignment> userTypeAssignments = new HashSet<>();
+
+    @OneToMany(mappedBy = "policy", cascade = CascadeType.ALL, orphanRemoval = true)
+    private Set<PolicyAccountTypeAssignment> accountTypeAssignments = new HashSet<>();
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
@@ -264,6 +270,22 @@ public class EquipmentPolicy {
 
     public void setRoleAssignments(Set<PolicyRoleAssignment> roleAssignments) {
         this.roleAssignments = roleAssignments;
+    }
+
+    public Set<PolicyUserTypeAssignment> getUserTypeAssignments() {
+        return userTypeAssignments;
+    }
+
+    public void setUserTypeAssignments(Set<PolicyUserTypeAssignment> userTypeAssignments) {
+        this.userTypeAssignments = userTypeAssignments;
+    }
+
+    public Set<PolicyAccountTypeAssignment> getAccountTypeAssignments() {
+        return accountTypeAssignments;
+    }
+
+    public void setAccountTypeAssignments(Set<PolicyAccountTypeAssignment> accountTypeAssignments) {
+        this.accountTypeAssignments = accountTypeAssignments;
     }
 
     /**

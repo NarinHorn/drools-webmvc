@@ -20,6 +20,8 @@ public class EquipmentPolicyAssignmentService {
     private final UserGroupRepository groupRepository;
     private final EquipmentRepository equipmentRepository;
     private final RoleRepository roleRepository;
+    private final UserTypeRepository userTypeRepository;
+    private final AccountTypeRepository accountTypeRepository;
     private final DynamicRuleService dynamicRuleService;
 
     @Autowired
@@ -29,12 +31,16 @@ public class EquipmentPolicyAssignmentService {
             UserGroupRepository groupRepository,
             EquipmentRepository equipmentRepository,
             RoleRepository roleRepository,
+            UserTypeRepository userTypeRepository,
+            AccountTypeRepository accountTypeRepository,
             DynamicRuleService dynamicRuleService) {
         this.policyRepository = policyRepository;
         this.userRepository = userRepository;
         this.groupRepository = groupRepository;
         this.equipmentRepository = equipmentRepository;
         this.roleRepository = roleRepository;
+        this.userTypeRepository = userTypeRepository;
+        this.accountTypeRepository = accountTypeRepository;
         this.dynamicRuleService = dynamicRuleService;
     }
 
@@ -291,6 +297,134 @@ public class EquipmentPolicyAssignmentService {
                     .orElseThrow(() -> new RuntimeException("Role not found: " + roleId));
             PolicyRoleAssignment assignment = new PolicyRoleAssignment(policy, role);
             policy.getRoleAssignments().add(assignment);
+        });
+        
+        policyRepository.save(policy);
+        dynamicRuleService.rebuildRules();
+    }
+
+    // ========== USER TYPE ASSIGNMENTS (Phase 3) ==========
+
+    public List<UserType> getUserTypeAssignments(Long policyId) {
+        EquipmentPolicy policy = getPolicyOrThrow(policyId);
+        return policy.getUserTypeAssignments().stream()
+                .map(PolicyUserTypeAssignment::getUserType)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional
+    public void addUserTypeAssignments(Long policyId, Set<Long> userTypeIds) {
+        EquipmentPolicy policy = getPolicyOrThrow(policyId);
+        
+        userTypeIds.forEach(userTypeId -> {
+            UserType userType = userTypeRepository.findById(userTypeId)
+                    .orElseThrow(() -> new RuntimeException("UserType not found: " + userTypeId));
+            
+            boolean exists = policy.getUserTypeAssignments().stream()
+                    .anyMatch(a -> a.getUserType().getId().equals(userTypeId));
+            
+            if (!exists) {
+                PolicyUserTypeAssignment assignment = new PolicyUserTypeAssignment(policy, userType);
+                policy.getUserTypeAssignments().add(assignment);
+            }
+        });
+        
+        policyRepository.save(policy);
+        dynamicRuleService.rebuildRules();
+    }
+
+    @Transactional
+    public void removeUserTypeAssignments(Long policyId, Set<Long> userTypeIds) {
+        EquipmentPolicy policy = getPolicyOrThrow(policyId);
+        
+        policy.getUserTypeAssignments().removeIf(
+                assignment -> userTypeIds.contains(assignment.getUserType().getId())
+        );
+        
+        policyRepository.save(policy);
+        dynamicRuleService.rebuildRules();
+    }
+
+    @Transactional
+    public void removeUserTypeAssignment(Long policyId, Long userTypeId) {
+        removeUserTypeAssignments(policyId, Set.of(userTypeId));
+    }
+
+    @Transactional
+    public void replaceUserTypeAssignments(Long policyId, Set<Long> userTypeIds) {
+        EquipmentPolicy policy = getPolicyOrThrow(policyId);
+        
+        policy.getUserTypeAssignments().clear();
+        
+        userTypeIds.forEach(userTypeId -> {
+            UserType userType = userTypeRepository.findById(userTypeId)
+                    .orElseThrow(() -> new RuntimeException("UserType not found: " + userTypeId));
+            PolicyUserTypeAssignment assignment = new PolicyUserTypeAssignment(policy, userType);
+            policy.getUserTypeAssignments().add(assignment);
+        });
+        
+        policyRepository.save(policy);
+        dynamicRuleService.rebuildRules();
+    }
+
+    // ========== ACCOUNT TYPE ASSIGNMENTS (Phase 3) ==========
+
+    public List<AccountType> getAccountTypeAssignments(Long policyId) {
+        EquipmentPolicy policy = getPolicyOrThrow(policyId);
+        return policy.getAccountTypeAssignments().stream()
+                .map(PolicyAccountTypeAssignment::getAccountType)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional
+    public void addAccountTypeAssignments(Long policyId, Set<Long> accountTypeIds) {
+        EquipmentPolicy policy = getPolicyOrThrow(policyId);
+        
+        accountTypeIds.forEach(accountTypeId -> {
+            AccountType accountType = accountTypeRepository.findById(accountTypeId)
+                    .orElseThrow(() -> new RuntimeException("AccountType not found: " + accountTypeId));
+            
+            boolean exists = policy.getAccountTypeAssignments().stream()
+                    .anyMatch(a -> a.getAccountType().getId().equals(accountTypeId));
+            
+            if (!exists) {
+                PolicyAccountTypeAssignment assignment = new PolicyAccountTypeAssignment(policy, accountType);
+                policy.getAccountTypeAssignments().add(assignment);
+            }
+        });
+        
+        policyRepository.save(policy);
+        dynamicRuleService.rebuildRules();
+    }
+
+    @Transactional
+    public void removeAccountTypeAssignments(Long policyId, Set<Long> accountTypeIds) {
+        EquipmentPolicy policy = getPolicyOrThrow(policyId);
+        
+        policy.getAccountTypeAssignments().removeIf(
+                assignment -> accountTypeIds.contains(assignment.getAccountType().getId())
+        );
+        
+        policyRepository.save(policy);
+        dynamicRuleService.rebuildRules();
+    }
+
+    @Transactional
+    public void removeAccountTypeAssignment(Long policyId, Long accountTypeId) {
+        removeAccountTypeAssignments(policyId, Set.of(accountTypeId));
+    }
+
+    @Transactional
+    public void replaceAccountTypeAssignments(Long policyId, Set<Long> accountTypeIds) {
+        EquipmentPolicy policy = getPolicyOrThrow(policyId);
+        
+        policy.getAccountTypeAssignments().clear();
+        
+        accountTypeIds.forEach(accountTypeId -> {
+            AccountType accountType = accountTypeRepository.findById(accountTypeId)
+                    .orElseThrow(() -> new RuntimeException("AccountType not found: " + accountTypeId));
+            PolicyAccountTypeAssignment assignment = new PolicyAccountTypeAssignment(policy, accountType);
+            policy.getAccountTypeAssignments().add(assignment);
         });
         
         policyRepository.save(policy);
